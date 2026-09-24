@@ -98,6 +98,8 @@ No hay framework CSS. Los estilos se encuentran en `src/styles.css`.
 
 Los cinco personajes se muestran en estaciones independientes y pueden seleccionarse para cambiar el chat activo.
 
+La imagen de LuciaBot fue reemplazada por un personaje futurista de gerente generado a partir de la referencia de perfil proporcionada por Diego. El nuevo activo conserva el fondo transparente, la paleta teal/índigo/magenta y el estilo visual de la oficina espacial. El logo de Dmente Digital no se reemplazó; continúa funcionando como identidad de la aplicación y de la oficina.
+
 ### Estado de las poses
 
 Los personajes futuristas tienen actualmente una sola pose cada uno. Cuando existe una solicitud pendiente, la aplicación mantiene la misma imagen y añade un indicador luminoso con campana.
@@ -277,6 +279,65 @@ Entre ellos se encuentran:
 
 No se han eliminado para evitar pérdida de material fuente.
 
+## 12A. Despliegue y MCP de Coolify
+
+El repositorio de producción está publicado en:
+
+`https://github.com/dmentdigital-cmd/dmente-synapse`
+
+Estado Git verificado:
+
+- rama publicada: `main`;
+- último commit de despliegue: `75da26e feat: prepare Dmente Synapse for Coolify deployment`;
+- árbol de trabajo local limpio después del último push;
+- no se incluyeron `node_modules`, `dist`, `data/`, archivos `.env` ni `.claude/` en el repositorio.
+
+El proyecto incluye `Dockerfile`, puerto `3010`, health check `/api/health` y configuración para persistir SQLite en `/app/data`.
+
+Coolify dispone de un MCP integrado en la propia instancia. La documentación oficial está disponible en:
+
+- [Configuración del MCP de Coolify](https://coolify.io/docs/mcp/setup)
+- [Funcionamiento del MCP de Coolify](https://coolify.io/docs/mcp/how-mcp-works)
+
+El endpoint esperado, una vez habilitado en Coolify, es:
+
+```text
+https://TU-DOMINIO-DE-COOLIFY/mcp
+```
+
+Estado de la integración MCP:
+
+- MCP integrado de Coolify: disponible en la instancia según la documentación oficial;
+- MCP conectado a esta sesión de Codex: no disponible;
+- API token de Coolify: pendiente de crear en `Keys & Tokens > API Tokens`;
+- despliegue remoto de Dmente Synapse: pendiente;
+- no se han enviado credenciales ni tokens al repositorio o a esta conversación.
+
+Variables que deberán configurarse como secretos en Coolify, no en GitHub:
+
+```env
+SYNAPSE_OWNER_USERNAME=diego
+SYNAPSE_OWNER_PASSWORD=<contraseña_real>
+SYNAPSE_SESSION_SECRET=<clave_aleatoria_larga>
+SYNAPSE_DATA_DIR=/app/data
+```
+
+La conexión del MCP requiere habilitarlo en Coolify y registrarlo como servidor MCP en el cliente compatible. No se debe asumir que esta sesión tiene acceso hasta que el conector aparezca entre las herramientas disponibles.
+
+### LuciaBot en el VPS
+
+LuciaBot está incluida dentro de la aplicación Synapse. No se conecta como un servicio separado: la interfaz, el catálogo del agente y el enrutamiento determinista se ejecutan dentro del mismo contenedor Node.js en Coolify.
+
+Estado actual verificado desde la interfaz desplegada:
+
+- LuciaBot aparece como gerente y orquestadora;
+- el inicio de sesión funciona con las variables configuradas en Coolify;
+- el dominio operativo es `https://synapse.dmentedigital.co`;
+- la nueva imagen futurista de LuciaBot está pendiente de publicarse mediante Git y redeploy;
+- todavía no existe conexión real con un modelo de lenguaje externo, Telegram, Hermes, Calendar, correo o WhatsApp.
+
+Para conectar una LuciaBot operativa con un modelo o con Telegram se requiere implementar el conector correspondiente, definir sus credenciales como variables secretas en Coolify y añadir aprobación y auditoría antes de permitir acciones externas.
+
 ## 13. Inconsistencias conocidas
 
 - Algunos nombres de documentos todavía contienen `PULPO-STARTER` aunque la marca visible ya es Dmente Synapse.
@@ -414,9 +475,10 @@ Ampere Core es infraestructura temporal de construcción y no forma parte del pr
 
 ## 19. Riesgos y decisiones pendientes
 
-- La base de sesiones está implementada, pero no está activa hasta configurar `SYNAPSE_OWNER_PASSWORD` y `SYNAPSE_SESSION_SECRET`.
-- La VPS está identificada como Ubuntu 24.04 LTS con acceso SSH root. El despliegue todavía no se ha ejecutado porque el proyecto no tiene un remote Git configurado y faltan dominio y configuración SSL.
-- El despliegue mediante Coolify está preparado, pero falta conectar el repositorio, configurar variables secretas, asignar el puerto 3010 y montar `/app/data` como almacenamiento persistente.
+- La base de sesiones está implementada y configurada mediante `SYNAPSE_OWNER_PASSWORD` y `SYNAPSE_SESSION_SECRET` en Coolify.
+- La VPS está identificada como Ubuntu 24.04 LTS con acceso SSH root. La aplicación está desplegada en Coolify con el dominio `synapse.dmentedigital.co`, puerto interno `3010` y persistencia en `/app/data`.
+- El despliegue inicial en Coolify terminó correctamente y el contenedor aparece como `Running`; todavía falta configurar un health check visible para la aplicación.
+- El MCP integrado de Coolify todavía no está conectado a esta sesión; no se ha ejecutado ninguna operación remota mediante MCP.
 - Existe un perfil local de desarrollo `diego-local` con permisos por dominio; no debe confundirse con autenticación ni autorización de producción.
 - No se deben conectar cuentas personales ni enviar mensajes externos antes de implementar permisos y aprobaciones.
 - El enrutador actual es local y determinista; no representa inteligencia autónoma ni sustituye una evaluación de modelo.
