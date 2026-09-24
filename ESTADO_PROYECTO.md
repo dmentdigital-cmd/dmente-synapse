@@ -345,6 +345,22 @@ Estado actual verificado desde la interfaz desplegada:
 
 Para conectar una LuciaBot operativa con Hermes se debe registrar `https://synapse.dmentedigital.co/mcp` en Hermes y usar el mismo valor secreto configurado como `SYNAPSE_MCP_TOKEN` en Coolify. Las herramientas de escritura crean registros y solicitudes con aprobación; no ejecutan acciones externas automáticamente.
 
+### Estado de Hermes en la VPS
+
+Estado verificado el 2026-09-24:
+
+- Hermes está instalado en `/home/diego/.hermes/hermes-agent`;
+- el gateway de Hermes está administrado por `/home/diego/.config/systemd/user/hermes-gateway.service`;
+- `hermes-gateway.service` aparece como `active (running)`;
+- el archivo principal de configuración es `/home/diego/.hermes/config.yaml`;
+- el secreto `SYNAPSE_MCP_TOKEN` fue añadido al entorno de Hermes sin registrarlo en este documento;
+- se añadió una entrada `synapse_remote` apuntando a `https://synapse.dmentedigital.co/mcp`;
+- la configuración del MCP local antiguo todavía inicia `/home/diego/proyectos/repos/dmente-synapse/mcp/synapse-mcp-server.js`;
+- los registros consultados no muestran todavía una conexión confirmada de `synapse_remote`;
+- la conexión Hermes → Synapse queda pendiente de validar mediante descubrimiento de herramientas MCP.
+
+No se debe eliminar el MCP local antiguo hasta confirmar que el servidor remoto funciona. El siguiente paso operativo es activar explícitamente `enabled: true` en `synapse_remote`, reiniciar `hermes-gateway` con el bus de usuario correcto y revisar sus registros.
+
 ## 13. Inconsistencias conocidas
 
 - Algunos nombres de documentos todavía contienen `PULPO-STARTER` aunque la marca visible ya es Dmente Synapse.
