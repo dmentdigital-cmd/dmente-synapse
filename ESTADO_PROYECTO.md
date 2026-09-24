@@ -3,7 +3,7 @@
 **Versión documentada:** 0.1.0  
 **Fecha de actualización:** 2026-09-24  
 **Zona horaria:** America/Bogota  
-**Estado general:** prototipo frontend + backend local vertical slice, compilable y preparado para despliegue en VPS
+**Estado general:** prototipo desplegado en VPS con backend operativo, autenticación y conexión MCP verificada con Hermes
 
 ## 1. Resumen
 
@@ -94,7 +94,7 @@ No hay framework CSS. Los estilos se encuentran en `src/styles.css`.
 | Legal | Analiza riesgos y contratos | `legal-futurista-normal.png` | Analizando |
 | Marketing | Diseña crecimiento y campañas | `marketing-normal.png` | Optimizando |
 | Ventas | Gestiona oportunidades | `ventas-normal.png` | Solicitud pendiente |
-| LuciaBot | Gerente y orquestadora | `gerente-normal.png` | Supervisando |
+| LuciaBot | Gerente y orquestadora | `lucia-bot-gerente-v2.png` | Supervisando |
 
 Los cinco personajes se muestran en estaciones independientes y pueden seleccionarse para cambiar el chat activo.
 
@@ -156,13 +156,12 @@ Las siguientes funciones aparecen en la visión o en los documentos iniciales, p
 
 - backend multiagente con ejecución real de modelos;
 - persistencia de conversaciones completas asociadas a usuarios y sesiones;
-- autenticación;
 - ejecución real de agentes mediante Codex CLI;
 - integración con Gmail, Google Drive o Composio;
 - tareas programadas o cron jobs;
 - aprobaciones con efectos externos reales;
 - creación funcional de agentes desde el botón `Añadir agente`;
-- configuración funcional;
+- configuración funcional avanzada;
 - carga de archivos desde el botón de adjuntar;
 - respuestas generadas por un modelo de lenguaje;
 - pruebas automatizadas;
@@ -173,7 +172,6 @@ Las siguientes funciones aparecen en la visión o en los documentos iniciales, p
 - registro de decisiones y comparación con decisiones humanas.
 - reglas completas para todos los dominios personal, familiar, salud, educación, iglesia y bienestar;
 - monitoreo real de Calendar, WhatsApp, correo y notas;
-- conexión real del agente de Hermes con Synapse;
 - recordatorios persistentes y eventos personales;
 - perfiles familiares y protección específica de datos de menores.
 
@@ -293,8 +291,8 @@ El repositorio de producción está publicado en:
 Estado Git verificado:
 
 - rama publicada: `main`;
-- último commit publicado: `0c792fc feat: add protected Synapse MCP for Hermes`;
-- cambios de la nueva imagen y del estado publicados en `main`;
+- último commit publicado: `8c5f124 docs: record Hermes gateway integration status`;
+- cambios de la nueva imagen, el MCP y el estado publicados en `main`;
 - no se incluyeron `node_modules`, `dist`, `data/`, archivos `.env` ni `.claude/` en el repositorio.
 
 El proyecto incluye `Dockerfile`, puerto `3010`, health check `/api/health` y configuración para persistir SQLite en `/app/data`.
@@ -312,14 +310,16 @@ https://TU-DOMINIO-DE-COOLIFY/mcp
 
 Estado de la integración MCP:
 
-- MCP integrado de Coolify: disponible en la instancia según la documentación oficial;
-- MCP propio de Synapse: endpoint `/mcp` implementado con JSON-RPC, autenticación Bearer y herramientas iniciales;
-- MCP conectado a esta sesión de Codex: no disponible;
-- token `SYNAPSE_MCP_TOKEN` en Coolify: pendiente de configurar;
-- registro del endpoint Synapse en Hermes: pendiente;
+- MCP propio de Synapse: endpoint `/mcp` implementado con JSON-RPC, autenticación Bearer y ocho herramientas;
+- token `SYNAPSE_MCP_TOKEN`: configurado en Coolify y Hermes, sin registrarlo en este documento;
+- registro del endpoint remoto en Hermes: configurado como `synapse_remote` con `enabled: true`;
+- prueba directa del endpoint: `HTTP 200` para `initialize`;
+- descubrimiento de herramientas: confirmado mediante `tools/list`;
+- invocación real desde Hermes: confirmada con `synapse_get_profile`, que devolvió el perfil `diego-local`;
+- MCP integrado de Coolify en esta sesión de Codex: no disponible;
 - no se han enviado credenciales ni tokens al repositorio o a esta conversación.
 
-Variables que deberán configurarse como secretos en Coolify, no en GitHub:
+Variables que deben mantenerse como secretos en Coolify, no en GitHub:
 
 ```env
 SYNAPSE_OWNER_USERNAME=diego
@@ -335,13 +335,16 @@ La conexión del MCP requiere habilitarlo en Coolify y registrarlo como servidor
 
 LuciaBot está incluida dentro de la aplicación Synapse. No se conecta como un servicio separado: la interfaz, el catálogo del agente y el enrutamiento determinista se ejecutan dentro del mismo contenedor Node.js en Coolify.
 
-Estado actual verificado desde la interfaz desplegada:
+Estado actual verificado desde la interfaz desplegada y la integración MCP:
 
 - LuciaBot aparece como gerente y orquestadora;
 - el inicio de sesión funciona con las variables configuradas en Coolify;
 - el dominio operativo es `https://synapse.dmentedigital.co`;
-- la nueva imagen futurista de LuciaBot está publicada en Git bajo un nombre versionado para evitar caché y pendiente de redeploy en Coolify;
-- todavía no existe conexión real con un modelo de lenguaje externo, Telegram, Hermes, Calendar, correo o WhatsApp.
+- la nueva imagen futurista de LuciaBot está publicada en Git como `lucia-bot-gerente-v2.png`, con fondo transparente y nombre versionado para evitar caché;
+- el sitio público `https://synapse.dmentedigital.co` muestra la nueva imagen en una ventana de incógnito, sin depender de una sesión previa;
+- Hermes está conectado mediante MCP remoto y ya invocó `synapse_get_profile` con respuesta correcta;
+- todavía no existe conexión real con Calendar, correo o WhatsApp;
+- Hermes conserva además un MCP local antiguo, que no se ha eliminado.
 
 Para conectar una LuciaBot operativa con Hermes se debe registrar `https://synapse.dmentedigital.co/mcp` en Hermes y usar el mismo valor secreto configurado como `SYNAPSE_MCP_TOKEN` en Coolify. Las herramientas de escritura crean registros y solicitudes con aprobación; no ejecutan acciones externas automáticamente.
 
@@ -354,12 +357,12 @@ Estado verificado el 2026-09-24:
 - `hermes-gateway.service` aparece como `active (running)`;
 - el archivo principal de configuración es `/home/diego/.hermes/config.yaml`;
 - el secreto `SYNAPSE_MCP_TOKEN` fue añadido al entorno de Hermes sin registrarlo en este documento;
-- se añadió una entrada `synapse_remote` apuntando a `https://synapse.dmentedigital.co/mcp`;
+- se añadió y habilitó una entrada `synapse_remote` apuntando a `https://synapse.dmentedigital.co/mcp`;
 - la configuración del MCP local antiguo todavía inicia `/home/diego/proyectos/repos/dmente-synapse/mcp/synapse-mcp-server.js`;
-- los registros consultados no muestran todavía una conexión confirmada de `synapse_remote`;
-- la conexión Hermes → Synapse queda pendiente de validar mediante descubrimiento de herramientas MCP.
+- la conexión Hermes → Synapse fue validada mediante `initialize`, `tools/list` y una invocación real de `synapse_get_profile`;
+- el servicio `hermes-gateway` continúa en estado `active (running)` después del reinicio.
 
-No se debe eliminar el MCP local antiguo hasta confirmar que el servidor remoto funciona. El siguiente paso operativo es activar explícitamente `enabled: true` en `synapse_remote`, reiniciar `hermes-gateway` con el bus de usuario correcto y revisar sus registros.
+No se debe eliminar el MCP local antiguo hasta decidir si otros flujos todavía lo utilizan. La integración remota ya está operativa.
 
 ## 13. Inconsistencias conocidas
 
@@ -501,7 +504,7 @@ Ampere Core es infraestructura temporal de construcción y no forma parte del pr
 - La base de sesiones está implementada y configurada mediante `SYNAPSE_OWNER_PASSWORD` y `SYNAPSE_SESSION_SECRET` en Coolify.
 - La VPS está identificada como Ubuntu 24.04 LTS con acceso SSH root. La aplicación está desplegada en Coolify con el dominio `synapse.dmentedigital.co`, puerto interno `3010` y persistencia en `/app/data`.
 - El despliegue inicial en Coolify terminó correctamente y el contenedor aparece como `Running`; todavía falta configurar un health check visible para la aplicación.
-- El MCP integrado de Coolify todavía no está conectado a esta sesión; no se ha ejecutado ninguna operación remota mediante MCP.
+- El MCP integrado de Coolify no está conectado a esta sesión de Codex; la integración verificada en este estado es el MCP propio de Synapse usado por Hermes.
 - Existe un perfil local de desarrollo `diego-local` con permisos por dominio; no debe confundirse con autenticación ni autorización de producción.
 - No se deben conectar cuentas personales ni enviar mensajes externos antes de implementar permisos y aprobaciones.
 - El enrutador actual es local y determinista; no representa inteligencia autónoma ni sustituye una evaluación de modelo.
@@ -511,4 +514,4 @@ Ampere Core es infraestructura temporal de construcción y no forma parte del pr
 
 ## 20. Criterio del estado actual
 
-El proyecto puede considerarse un **prototipo web local con backend vertical slice**. Permite validar la dirección visual, la distribución de agentes, la persistencia local básica y el enrutamiento determinista inicial. No debe presentarse todavía como un sistema multiagente autónomo ni como una integración operativa con servicios externos.
+El proyecto puede considerarse un **prototipo web desplegado con backend vertical slice y una integración MCP operativa con Hermes**. La interfaz pública, el inicio de sesión, la persistencia básica y la conexión Hermes → Synapse están verificadas. No debe presentarse todavía como un sistema multiagente autónomo ni como una integración operativa con Calendar, correo o WhatsApp.
