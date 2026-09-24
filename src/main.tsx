@@ -2,9 +2,11 @@ import { StrictMode, useEffect, useMemo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { agents, initialMessages } from './agents'
 import { ChatDock, ChatPanel } from './components/ChatPanel'
+import { AddAgentPanel } from './components/AddAgentPanel'
 import { LoginScreen } from './components/LoginScreen'
 import { OfficeStage } from './components/OfficeStage'
 import { RequestsPanel } from './components/RequestsPanel'
+import { SettingsPanel } from './components/SettingsPanel'
 import { Topbar } from './components/Topbar'
 import type { AgentId, Message, Section } from './types'
 import './styles.css'
@@ -20,11 +22,16 @@ function Root() {
     fetch('/api/auth/session').then((response) => response.json() as Promise<AuthState>).then(setAuth).catch(() => setAuth({ configured: false, authenticated: false }))
   }, [])
 
+  async function logout() {
+    await fetch('/api/auth/logout', { method: 'POST' }).catch(() => undefined)
+    setAuth({ configured: true, authenticated: false })
+  }
+
   if (auth?.configured && !auth.authenticated) return <LoginScreen onAuthenticated={(userId) => setAuth({ configured: true, authenticated: true, userId })} />
-  return <App />
+  return <App onLogout={logout} />
 }
 
-function App() {
+function App({ onLogout }: { onLogout: () => void }) {
   const [activeAgent, setActiveAgent] = useState<AgentId>('secretaria')
   const [messages, setMessages] = useState(initialMessages)
   const [pending, setPending] = useState<Record<AgentId, boolean>>({ secretaria: true, legal: false, marketing: false, ventas: true, gerente: false })
@@ -32,6 +39,7 @@ function App() {
   const [section, setSection] = useState<Section>('office')
   const [chatMinimized, setChatMinimized] = useState(false)
   const [apiReady, setApiReady] = useState(false)
+  const [addAgentOpen, setAddAgentOpen] = useState(false)
   const agent = agents[activeAgent]
   const pendingCount = Object.values(pending).filter(Boolean).length
   const orderedAgents = useMemo(() => Object.entries(agents) as [AgentId, typeof agents[AgentId]][], [])
@@ -77,11 +85,12 @@ function App() {
   }
 
   return <div className="app-shell">
-    <Topbar section={section} pendingCount={pendingCount} setSection={setSection} setActiveAgent={setActiveAgent} />
+    <Topbar section={section} pendingCount={pendingCount} setSection={setSection} setActiveAgent={setActiveAgent} onAddAgent={() => setAddAgentOpen(true)} onLogout={onLogout} />
     <main className="workspace">
       <OfficeStage activeAgent={activeAgent} pending={pending} pendingCount={pendingCount} setActiveAgent={setActiveAgent} />
-      {section === 'requests' ? <RequestsPanel pending={pending} pendingCount={pendingCount} setActiveAgent={setActiveAgent} close={() => setSection('office')} /> : chatMinimized ? <ChatDock agent={agent} pending={pending[activeAgent]} restore={() => setChatMinimized(false)} /> : <ChatPanel agent={agent} messages={messages[activeAgent] as Message[]} pending={pending[activeAgent]} apiReady={apiReady} draft={draft} setDraft={setDraft} sendMessage={sendMessage} minimize={() => setChatMinimized(true)} togglePending={() => setPending((current) => ({ ...current, [activeAgent]: !current[activeAgent] }))} />}
+      {section === 'requests' ? <RequestsPanel pending={pending} pendingCount={pendingCount} setActiveAgent={setActiveAgent} close={() => setSection('office')} /> : section === 'settings' ? <SettingsPanel onLogout={onLogout} /> : chatMinimized ? <ChatDock agent={agent} pending={pending[activeAgent]} restore={() => setChatMinimized(false)} /> : <ChatPanel agent={agent} messages={messages[activeAgent] as Message[]} pending={pending[activeAgent]} apiReady={apiReady} draft={draft} setDraft={setDraft} sendMessage={sendMessage} minimize={() => setChatMinimized(true)} togglePending={() => setPending((current) => ({ ...current, [activeAgent]: !current[activeAgent] }))} />}
     </main>
+    {addAgentOpen && <AddAgentPanel close={() => setAddAgentOpen(false)} />}
   </div>
 }
 

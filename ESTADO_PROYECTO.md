@@ -143,6 +143,10 @@ También existen los activos `escritorio-futurista.png` y `silla-futurista.png`,
 - Panel de solicitudes con acceso a la conversación correspondiente.
 - Chat minimizable mediante el botón `−`.
 - Botón compacto para restaurar el chat minimizado.
+- Botón visible de salida de sesión conectado a `/api/auth/logout`.
+- Navegación funcional entre Oficina, Agentes, Solicitudes y Configuración.
+- Panel de configuración que muestra el estado de la sesión y de Hermes.
+- Modal funcional para el botón `Añadir agente`, con aviso explícito de que la creación persistente todavía requiere backend.
 - Adaptación básica para pantallas pequeñas.
 - Respeto de `prefers-reduced-motion`.
 
@@ -169,6 +173,7 @@ Las siguientes funciones aparecen en la visión o en los documentos iniciales, p
 - registro de decisiones y comparación con decisiones humanas.
 - reglas completas para todos los dominios personal, familiar, salud, educación, iglesia y bienestar;
 - monitoreo real de Calendar, WhatsApp, correo y notas;
+- conexión real del agente de Hermes con Synapse;
 - recordatorios persistentes y eventos personales;
 - perfiles familiares y protección específica de datos de menores.
 
