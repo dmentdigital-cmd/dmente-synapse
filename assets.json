@@ -1,0 +1,173 @@
+{
+  "version": 3,
+  "rendering": {
+    "imageRendering": "pixelated",
+    "preserveAspectRatio": true,
+    "characterCanvas": [
+      1254,
+      1254
+    ],
+    "notes": "Dos poses por personaje; no incluye ciclo de pasos. Mantener el mismo tamaño y anclaje de cada par.",
+    "attentionRule": "Mostrar la pose attention mientras exista al menos una solicitud pendiente. Abrir el chat no la resuelve.",
+    "visibleBrand": "Dmente Synapse",
+    "workstationOrientation": "Agente y silla detrás de escritorio; pantalla hacia agente, parte trasera del monitor hacia cámara; cara y mano visibles."
+  },
+  "characters": {
+    "administrativo": {
+      "normal": "administrativo-normal.png",
+      "attention": "administrativo-mano-levantada.png"
+    },
+    "legal": {
+      "normal": "legal-normal.png",
+      "attention": "legal-mano-levantada.png",
+      "appearance": "Rata antropomórfica de traje azul"
+    },
+    "pulpo": {
+      "normal": "pulpo-normal.png",
+      "attention": "pulpo-mano-levantada.png",
+      "placement": "navbar"
+    }
+  },
+  "assets": [
+    {
+      "id": "admin_normal",
+      "file": "administrativo-normal.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "transparent": true,
+      "kind": "character",
+      "sha256": "24012a6ef654fe66834cafa46bd93056877fc7c73df77308a343257b7eb804ec"
+    },
+    {
+      "id": "admin_hand_up",
+      "file": "administrativo-mano-levantada.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "transparent": true,
+      "kind": "character",
+      "sha256": "c906304f7b82c6a96ba19d0218b3e3ab8fed1c5cebffc9a6b465597e5e62766b"
+    },
+    {
+      "id": "legal_normal",
+      "file": "legal-normal.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "transparent": true,
+      "kind": "character",
+      "sha256": "6382f72b859f4320b654b93f1ac72f28b05690ccae5b38d560a4717e205158e5"
+    },
+    {
+      "id": "legal_hand_up",
+      "file": "legal-mano-levantada.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "transparent": true,
+      "kind": "character",
+      "sha256": "a06e93cf8d07f21a005d9a8fa6a23c9ecf0aac59181cdc05d5296b9568645fcd"
+    },
+    {
+      "id": "pulpo_normal",
+      "file": "pulpo-normal.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "transparent": true,
+      "kind": "character",
+      "sha256": "85680d69d0c6f34ff9e8b912d7ddfeacd99b96299a335fc0f28b049e86497c18"
+    },
+    {
+      "id": "pulpo_hand_up",
+      "file": "pulpo-mano-levantada.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "transparent": true,
+      "kind": "character",
+      "sha256": "ef46e7fb6734823deeee223f13d3b34aab2d2e15c52aedb24ab074c05f19c8fc"
+    },
+    {
+      "id": "desk",
+      "file": "escritorio.png",
+      "width": 1544,
+      "height": 1019,
+      "mode": "RGBA",
+      "transparent": true,
+      "kind": "prop",
+      "sha256": "547e7d484a00a128904c23339ccbfad12fa23fd80740162c09a6a0f02b8b7600"
+    },
+    {
+      "id": "chair",
+      "file": "silla.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "transparent": true,
+      "kind": "prop",
+      "sha256": "1e41b9cab9eff102b2e2b8b9439c2ec5bb0065552407486087b6dcae5edc6956"
+    },
+    {
+      "id": "plant_large",
+      "file": "planta-grande.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "transparent": true,
+      "kind": "prop",
+      "sha256": "949a08015525c2ce8d78b75c382b3bd95702b7dc71fbfcb8d5d2a91433d278ce"
+    },
+    {
+      "id": "plant_small",
+      "file": "planta-pequena.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "transparent": true,
+      "kind": "prop",
+      "sha256": "99d45b2bf1c345dfa368d487d1ebc1d6588cde6d2d7c224dd261e9740ddf9ae2"
+    },
+    {
+      "id": "filing_cabinet",
+      "file": "archivador.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "transparent": true,
+      "kind": "prop",
+      "sha256": "2153e3609ea8381ff3a100dc059fe2dd6ed9f547ccc795738751ceb828e2be9b"
+    },
+    {
+      "id": "bookcase",
+      "file": "biblioteca.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "transparent": true,
+      "kind": "prop",
+      "sha256": "fa19299389c24092eecc399f47fada24ab0fb34899ea5ea7f62110ab65ede9cd"
+    },
+    {
+      "id": "office_background",
+      "file": "oficina-fondo.png",
+      "width": 1586,
+      "height": 992,
+      "mode": "RGB",
+      "transparent": false,
+      "kind": "background",
+      "sha256": "7f59012c1ef041051ab64a98a6e35066af00fa98e98db4ea84c56f628e8e4121"
+    },
+    {
+      "id": "office_reference",
+      "file": "oficina-referencia.png",
+      "width": 1586,
+      "height": 992,
+      "mode": "RGB",
+      "transparent": false,
+      "kind": "concept",
+      "sha256": "b43fea982e021ccb2311fc7e36ac9fd324ad4f75a24f169f64a1371f85273b4c"
+    }
+  ]
+}

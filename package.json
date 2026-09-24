@@ -1,0 +1,30 @@
+{
+  "name": "dmente-synapse",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "server:dev": "tsx server/index.ts",
+    "server:start": "tsx server/index.ts",
+    "server:check": "tsc --noEmit --project tsconfig.server.json",
+    "dev:all": "concurrently -k \"npm run server:dev\" \"npm run dev -- --host 127.0.0.1\"",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "latest",
+    "typescript": "latest",
+    "vite": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "lucide-react": "latest"
+  },
+  "devDependencies": {
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "@types/node": "latest",
+    "concurrently": "latest",
+    "tsx": "latest"
+  }
+}

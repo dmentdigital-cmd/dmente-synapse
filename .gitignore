@@ -1,0 +1,25 @@
+# BEGIN AMPERE CORE
+# Entradas necesarias para el arnés (install-ampere-core.js). Bloque gestionado:
+# "ampere detach" lo quita entero. Escribí tus propias reglas FUERA del bloque.
+.env
+.env.local
+.claude/logs/
+.claude/audits/
+.claude/ARNES-LAST-SHIP.txt
+.claude/INSTALL-STATE.json
+.claude/feedback/
+.claude/ship/
+.claude/resolved-sidecars/
+.claude/detach/
+/data/
+/outputs/
+/logs/
+# END AMPERE CORE
+
+# Dependencias y salidas generadas
+node_modules/
+dist/
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+.claude/

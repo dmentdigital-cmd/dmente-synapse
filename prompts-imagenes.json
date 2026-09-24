@@ -1,0 +1,134 @@
+{
+  "generator": "Imagegen integrado",
+  "note": "PNG originales conservados; no se han redibujado ni recortado por código.",
+  "assets": [
+    {
+      "key": "admin_normal",
+      "file": "administrativo-normal.png",
+      "prompt": "Use case: stylized-concept. Asset type: production-ready transparent PNG game character sprite, single character single pose. Create the ADMINISTRATIVE SECRETARY for a coherent 16-bit pixel-art office RPG kit. An elderly classic office secretary, warm but no-nonsense, gray hair in a tidy bun, small gold-rim glasses, plum cardigan over cream blouse, olive pencil skirt, sensible dark low shoes. Expressive dignified face, tiny pearl earrings. Full body standing front-facing, camera slightly elevated like classic top-down Pokemon-era office game. Both hands resting naturally DOWN at her sides, neutral idle pose. Original character, charming and readable at 96 pixels. Crisp deliberate square pixel clusters, limited palette, clean dark 1-pixel-equivalent outline, no anti-aliased illustration, no blur or 3D. Exact output canvas 1024x1024 pixels with actual transparent alpha background, NOT a checkerboard drawn into the image. The character occupies approx 480 pixels width and 700 pixels height: head top at y=180 and feet baseline at y=880; character centered at x=512. Keep generous transparent room above and at sides for later raised hand variant, identical overall scale across the kit. NO ground, no drop shadow, no desk, no props, no text, no labels, no border. Just one secretary isolated on actual transparency. Return a saved PNG.",
+      "reference_files": []
+    },
+    {
+      "key": "admin_hand_up",
+      "file": "administrativo-mano-levantada.png",
+      "prompt": "Use case: identity-preserve. Edit target is the attached secretary sprite. Make the alternate HAND RAISED frame of exactly the same character. Raise ONLY her right arm (on viewer left) next to her head, elbow bent, open hand held up to request attention. Keep identical face, bun, glasses, cardigan, skirt, shoes, pixel-art style, body placement, head size, body scale and feet baseline; do not move or resize the rest of the character. Keep full character entirely inside the same square canvas, same 1254x1254 dimensions, and genuine transparent alpha background. No text, no floor, no shadow, no additional objects. This is one alternate animation-state PNG, NOT a sheet or collage.",
+      "reference_files": [
+        "administrativo-normal.png"
+      ]
+    },
+    {
+      "key": "legal_normal",
+      "file": "legal-normal.png",
+      "prompt": "Use case: stylized-concept. Single full-body anthropomorphic gray RAT lawyer, large round pink ears, narrow pointed muzzle, pink nose, whiskers, sly narrowed eyes, arched brows, annoying self-satisfied grin with two small incisors. Navy double-breasted suit, white shirt, burgundy tie with gold tie clip, cream pocket square, shiny dark shoes. Gray-furred hands with pink fingers down at sides; thin pink tail curling beside feet. Crisp 16-bit pixel-art square clusters and dark outlines, same style as the other office characters. Square 1254x1254 PNG with genuine transparent alpha; centered full body, no ground, no shadow, no text.",
+      "reference_files": [],
+      "prompt_usage": "Descripción autónoma de la versión actual. La imagen entregada se obtuvo editando la versión anterior con Imagegen."
+    },
+    {
+      "key": "legal_hand_up",
+      "file": "legal-mano-levantada.png",
+      "prompt": "Use case: identity-preserve. Edit target: the attached anthropomorphic RAT lawyer sprite. Create the alternate REQUEST-PENDING pose: raise ONLY his right arm (viewer left) beside his head, elbow bent, open rat hand with pink fingers raised as if insistently asking to speak. Keep EXACTLY the same gray rat face, large round pink ears, pointed muzzle, whiskers, sly smirk with incisors, navy double-breasted suit, burgundy tie, tail, legs and shoes. Preserve body position, head size, pixel-art style, scale and feet baseline. The rest of the body must stay in place. Same square 1254x1254 canvas and genuine transparent alpha background. No shadow, no text, no ground, no additional objects. One full-body character, one pose.",
+      "reference_files": [
+        "legal-normal.png"
+      ]
+    },
+    {
+      "key": "pulpo_normal",
+      "file": "pulpo-normal.png",
+      "prompt": "Use case: stylized-concept. Production game asset: exactly ONE full-body 16-bit pixel-art character, front-facing viewed from a slightly elevated classic Pokemon-era RPG camera. Crisp square pixel clusters and limited palette, dark pixel outline, charming expressive face, readable when downscaled. Canvas square 1254x1254 to match the secretary sprite, actual transparent PNG alpha, no background, no checkerboard drawing, no shadow, no ground, no furniture, no text, no border. Feet baseline near y=1190, body centered x=627, whole body approx 950 pixels tall, leave headroom and side space for a hand-up alternate. Subject: PULPO the chief of staff, a clever coral-orange octopus mascot with a large rounded head, dark expressive eyebrows, small round spectacles perched on head, a tiny cream collar and dark-teal necktie. Friendly competent boss expression, closed-mouth slight smile. Eight clearly readable short rounded tentacles arranged compactly beneath head with a few warm pink suction cups. All tentacles lowered naturally, none raised, balanced grounded idle pose. Head/body occupies same overall visual scale as other characters, not a tiny logo. Original memorable design. No clothes covering entire octopus, no hat, no extra objects.",
+      "reference_files": []
+    },
+    {
+      "key": "pulpo_hand_up",
+      "file": "pulpo-mano-levantada.png",
+      "prompt": "Use case: identity-preserve. Edit target: the attached orange octopus boss sprite. Produce the alternate attention-request pose: lift ONLY his far left-side tentacle (viewer left) up beside the head in a clear raised-hand gesture with visible pink suction cups. Keep exactly the same face, head, glasses, collar, tie, orange palette, pixel style, all other tentacles, body placement and overall scale. Body must not shift. Same square 1254x1254 canvas and same actual transparent alpha background. Keep the raised tentacle fully within canvas with transparent margin. No text, no props, no ground, no shadow, one character only.",
+      "reference_files": [
+        "pulpo-normal.png"
+      ]
+    },
+    {
+      "key": "desk",
+      "file": "escritorio.png",
+      "prompt": "Use case: precise-object-edit. Correct the ORIENTATION of the attached pixel-art office workstation sprite. We must see the desk from the VISITOR side; the worker will sit behind the desk on the FAR side of the image, facing toward the viewer. Keep the same pale oak desk, sage-green cabinet, dark monitor, papers, original pixel style, scale, centered placement and exact 1544x1018 transparent PNG canvas. Rotate the monitor and keyboard arrangement 180 degrees: the screen must face AWAY FROM THE VIEWER toward the worker at the far side. The viewer sees the BACK of the monitor, a plain charcoal casing with vents and its rear stand/mount, NOT a screen. The keyboard belongs on the far side between worker and display, mostly hidden behind the monitor from this camera; remove the foreground keyboard. The near/visitor side of the desk has an oak modesty panel; drawer handles and leg opening face the far worker side, not the viewer. The sage cabinet can show its plain solid outer panel. Keep the papers at the side. No person and no chair in this asset. Keep all furniture contained, no ground, no cast shadow, no text, no background. Actual transparent alpha. This is a functional workstation seen from across the desk, ready for a front-facing seated worker placed behind it.",
+      "reference_files": [
+        "escritorio.png (versión anterior)"
+      ]
+    },
+    {
+      "key": "chair",
+      "file": "silla.png",
+      "prompt": "Use case: stylized-concept. ONE isolated production furniture sprite for a coherent 16-bit pixel-art office RPG. Slightly elevated front-facing camera, classic top-down Pokemon interior prop with top and front faces visible, horizontal front edge, NOT diagonal diamond isometric. Square crisp pixel clusters, dark charcoal pixel outline, restrained palette: pale oak, muted sage green, cream, plum and brass. Actual transparent PNG alpha background. No drawn checkerboard, no ground plane, no detached shadow, no room or characters, no text, no labels, no borders, no sheets. One complete object centered in canvas with 10% transparent margin. A simple sage-green upholstered swivel office chair with visible seat and back cushion, slim dark charcoal arm rests and five-wheel black base. Front facing, slightly viewed from above. Same charming office style as an oak desk with sage drawers. Square canvas.",
+      "reference_files": []
+    },
+    {
+      "key": "plant_large",
+      "file": "planta-grande.png",
+      "prompt": "Use case: stylized-concept. Asset type: ONE isolated production game prop sprite for a 16-bit pixel-art office RPG. Camera fixed slightly top-down with front faces visible, classic top-down Pokemon room style, horizontal front edges, NOT diagonal diamond isometric. Crisp square pixel clusters, clean dark charcoal pixel outline, limited palette of pale oak wood, muted sage green, cream, plum, charcoal and terracotta. Genuinely transparent PNG alpha background, no checkerboard drawing, no ground, no room, no detached cast shadow, no text or labels. Square canvas 1254x1254. Entire object centered with generous transparent margin, lower contact points around y=1100; no clipping. Exactly one object, not a sheet. Subject: one lush decorative monstera office plant with five broad dark sage and emerald leaves with clear characteristic leaf slits, in a rounded terracotta pot on a tiny saucer. Plant approx 620px wide and 870px tall. Chunky readable pixels. No stand, no other furniture, no character. The entire pot and leaves belong to one isolated object.",
+      "reference_files": []
+    },
+    {
+      "key": "plant_small",
+      "file": "planta-pequena.png",
+      "prompt": "Use case: stylized-concept. ONE isolated production furniture sprite for a coherent 16-bit pixel-art office RPG. Slightly elevated front-facing camera, classic top-down Pokemon interior prop with top and front faces visible, horizontal front edge, NOT diagonal diamond isometric. Square crisp pixel clusters, dark charcoal pixel outline, restrained palette: pale oak, muted sage green, cream, plum and brass. Actual transparent PNG alpha background. No drawn checkerboard, no ground plane, no detached shadow, no room or characters, no text, no labels, no borders, no sheets. One complete object centered in canvas with 10% transparent margin. A small cheerful succulent with thick jade green rounded leaves in a cream ceramic pot with a subtle plum stripe and tiny terracotta saucer, suitable as a desktop plant. Clearly pixelated original asset, square canvas.",
+      "reference_files": []
+    },
+    {
+      "key": "filing_cabinet",
+      "file": "archivador.png",
+      "prompt": "Use case: stylized-concept. ONE isolated production furniture sprite for a coherent 16-bit pixel-art office RPG. Slightly elevated front-facing camera, classic top-down Pokemon interior prop with top and front faces visible, horizontal front edge, NOT diagonal diamond isometric. Square crisp pixel clusters, dark charcoal pixel outline, restrained palette: pale oak, muted sage green, cream, plum and brass. Actual transparent PNG alpha background. No drawn checkerboard, no ground plane, no detached shadow, no room or characters, no text, no labels, no borders, no sheets. One complete object centered in canvas with 10% transparent margin. One waist-high muted sage metal filing cabinet with three wide drawers, small brass pulls and tiny blank cream label holders. No objects on top. Show front and a little top. Subtle pixel highlights and scuffs, tidy friendly vintage office. Square canvas.",
+      "reference_files": []
+    },
+    {
+      "key": "bookcase",
+      "file": "biblioteca.png",
+      "prompt": "Use case: stylized-concept. ONE isolated production furniture sprite for a coherent 16-bit pixel-art office RPG. Slightly elevated front-facing camera, classic top-down Pokemon interior prop with top and front faces visible, horizontal front edge, NOT diagonal diamond isometric. Square crisp pixel clusters, dark charcoal pixel outline, restrained palette: pale oak, muted sage green, cream, plum and brass. Actual transparent PNG alpha background. No drawn checkerboard, no ground plane, no detached shadow, no room or characters, no text, no labels, no borders, no sheets. One complete object centered in canvas with 10% transparent margin. One compact tall pale-oak wooden bookcase with three shelves, containing tidy readable chunky rows of burgundy, sage, navy and cream binders and books, and one small cream archive box. No text on spines. Show front and a tiny amount of top. Rectangular upright bookcase fully within square canvas.",
+      "reference_files": []
+    },
+    {
+      "key": "office_background",
+      "file": "oficina-fondo.png",
+      "prompt": "Use case: stylized-concept. Asset type: EMPTY ROOM BACKGROUND for a 16-bit pixel-art office RPG, designed to receive separately positioned character and furniture sprites. Wide landscape composition approx 1600x1000. A charming bright small office loft, fixed slightly top-down front-facing orthographic game camera like classic Pokemon interiors; horizontal back wall, left and right side walls receding up, NOT a diamond-shaped isometric diorama. Muted sage green lower walls with cream upper walls and pale oak trim. Three large rectangular windows side by side on the upper back wall, showing pale blue sky and soft green tree crowns. Pale honey-oak horizontal plank floor fills most of the scene, with a simple small plum rectangular inset doormat at a doorway at the bottom edge. A compact wall clock centered above windows. Bright soft daytime. Crisp chunky 16-bit pixel clusters, limited calm palette, outlines consistent with retro office game objects. The room must be COMPLETELY EMPTY of movable furniture, plants and characters: no desks, chairs, shelving, cabinets, computers, rugs other than tiny entrance mat, no octopus. No user interface, no text, no labels, no title, no watermark. Fully opaque finished game background. Floor is broad open walkable space suitable for two desks at left and right with a clear center aisle. This is the room itself edge to edge, not a poster. Camera matching front-facing character sprites.",
+      "reference_files": []
+    },
+    {
+      "key": "office_reference",
+      "file": "oficina-referencia.png",
+      "prompt": "Edit the FIRST attached image, the office app mockup, to correct exactly two problems: branding and the functional orientation of BOTH workstations. Preserve the warm original pixel-art style, room, three windows, bookcase, plants, character identities, palette, overall office layout and UI. Keep exact 1586x992 canvas. (1) Top-left brand must read exactly 'Pulpo', never 'Pulpo Starter'; remove the word Starter. Keep the orange octopus icon and other navbar labels. (2) Both agents must be seated on the WORKER side BEHIND their desks, nearer the back windows, facing the camera across the desk. The desks are closer to the viewer than the agents. The elderly secretary sits behind the left desk, with her hand visibly raised beside her face; same gray bun, glasses and purple cardigan. The rat lawyer sits behind the right desk, same gray rat face and navy suit. Move each green chair to BEHIND its agent, so its back cushion peeks out behind shoulders. Remove both chairs from the foreground visitor aisle. CRITICAL: rotate each computer so its SCREEN faces its worker and the VIEWER SEES THE BACK of each MONITOR: matte dark casing with vents and central rear support mount, no visible screen. The second attached image shows the corrected desk/monitor orientation to use for both desks. Keyboard is on the far worker side between agent and monitor, mostly occluded from the viewer. No keyboard in front of the monitor on the visitor side. Near face of each desk is a pale oak modesty panel and plain sage cabinet outer panel, not drawers facing the viewer. Front-facing seated worker's lower body naturally occluded by desk. Secretary must look like she's requesting attention FROM HER WORKING CHAIR behind her monitor, not standing opposite the chair at the guest side. Keep monitor low enough her face and raised hand remain clearly visible. Rat similarly seated behind desk, face visible. Keep 'Administrativo' and 'Legal' labels and bottom-right chat with 'Tengo una revisión lista.' Keep all Spanish navbar text apart from shortened Pulpo branding. No added characters, no foreground chairs, no backwards workstations.",
+      "reference_files": [
+        "oficina-referencia.png (versión anterior)",
+        "escritorio.png"
+      ],
+      "prompt_usage": "Prompt de composición actualizado para recrear la referencia con la rata. La entrega actual se obtuvo editando únicamente al personaje Legal en la referencia previa."
+    }
+  ],
+  "latest_edits": [
+    {
+      "key": "legal_normal",
+      "file": "legal-normal.png",
+      "prompt": "Use case: identity-preserve / precise-object-edit. Edit the attached full-body lawyer game sprite: replace the character's species with a RAT while preserving the sharp navy double-breasted suit, burgundy tie, gold tie clip, white shirt, pocket square, shiny dark shoes, body pose and overall scale. He is an anthropomorphic gray rat lawyer: large round pink-inner ears, narrow pointed rodent muzzle, small pink nose, thin whiskers, sly narrowed eyes with arched brows and an annoyingly self-satisfied smirk showing two small incisors. Give him small gray-furred hands with pink fingers resting naturally DOWN at his sides, and a thin pink rat tail curling discreetly beside his feet. No fins or shark features. Clever, pushy, comically irritating but charming original office-game character. Keep crisp 16-bit pixel-art square clusters, dark outline, identical outfit colors. Same full-body placement and foot baseline as the input. EXACT same square 1254x1254 PNG canvas, genuinely transparent alpha background. No floor, no shadow, no props, no text or frame. One character one neutral pose; leave headroom and side space for a raised-hand alternate.",
+      "reference_note": "Versión previa del mismo archivo y/o nueva referencia de la rata; historial visual anterior archivado fuera del kit."
+    },
+    {
+      "key": "legal_hand_up",
+      "file": "legal-mano-levantada.png",
+      "prompt": "Use case: identity-preserve. Edit target: the attached anthropomorphic RAT lawyer sprite. Create the alternate REQUEST-PENDING pose: raise ONLY his right arm (viewer left) beside his head, elbow bent, open rat hand with pink fingers raised as if insistently asking to speak. Keep EXACTLY the same gray rat face, large round pink ears, pointed muzzle, whiskers, sly smirk with incisors, navy double-breasted suit, burgundy tie, tail, legs and shoes. Preserve body position, head size, pixel-art style, scale and feet baseline. The rest of the body must stay in place. Same square 1254x1254 canvas and genuine transparent alpha background. No shadow, no text, no ground, no additional objects. One full-body character, one pose.",
+      "reference_note": "Versión previa del mismo archivo y/o nueva referencia de la rata; historial visual anterior archivado fuera del kit."
+    },
+    {
+      "key": "office_reference",
+      "file": "oficina-referencia.png",
+      "prompt": "Use case: precise-object-edit / compositing. Image 1 is the EDIT TARGET: the Pulpo Starter office concept screenshot. Image 2 is the CHARACTER REFERENCE: the new gray rat lawyer in navy suit. In image 1, replace ONLY the shark lawyer standing near the right-hand desk with the rat lawyer from image 2. Give the rat the same placement, approximate visible height and impatient leaning/looking-at-watch pose as the character being replaced. Match the reference rat's gray fur, pink ears, pointed muzzle, whiskers, sly grin, navy double-breasted suit, burgundy tie, gold details and thin pink tail. Preserve EVERYTHING ELSE in the office: room, furniture, plants, secretary with raised hand, octopus icon, all navbar and chat text, labels, lighting, perspective, composition and pixel style. Same landscape canvas and resolution as image 1, fully opaque. Do not add or remove any UI or other objects. No remaining shark features.",
+      "reference_note": "Versión previa del mismo archivo y/o nueva referencia de la rata; historial visual anterior archivado fuera del kit."
+    }
+  ],
+  "correccion_marca_y_orientacion": {
+    "date": "2026-09-24",
+    "desk": {
+      "prompt": "Use case: precise-object-edit. Correct the ORIENTATION of the attached pixel-art office workstation sprite. We must see the desk from the VISITOR side; the worker will sit behind the desk on the FAR side of the image, facing toward the viewer. Keep the same pale oak desk, sage-green cabinet, dark monitor, papers, original pixel style, scale, centered placement and exact 1544x1018 transparent PNG canvas. Rotate the monitor and keyboard arrangement 180 degrees: the screen must face AWAY FROM THE VIEWER toward the worker at the far side. The viewer sees the BACK of the monitor, a plain charcoal casing with vents and its rear stand/mount, NOT a screen. The keyboard belongs on the far side between worker and display, mostly hidden behind the monitor from this camera; remove the foreground keyboard. The near/visitor side of the desk has an oak modesty panel; drawer handles and leg opening face the far worker side, not the viewer. The sage cabinet can show its plain solid outer panel. Keep the papers at the side. No person and no chair in this asset. Keep all furniture contained, no ground, no cast shadow, no text, no background. Actual transparent alpha. This is a functional workstation seen from across the desk, ready for a front-facing seated worker placed behind it.",
+      "source": "/home/claude/.codex/generated_images/01a0cfad-30e6-7700-bb20-e9b64a83a326/exec-115ab0af-7a58-4272-9b85-ec45b3c83968.png"
+    },
+    "office": {
+      "prompt": "Edit the FIRST attached image, the office app mockup, to correct exactly two problems: branding and the functional orientation of BOTH workstations. Preserve the warm original pixel-art style, room, three windows, bookcase, plants, character identities, palette, overall office layout and UI. Keep exact 1586x992 canvas. (1) Top-left brand must read exactly 'Pulpo', never 'Pulpo Starter'; remove the word Starter. Keep the orange octopus icon and other navbar labels. (2) Both agents must be seated on the WORKER side BEHIND their desks, nearer the back windows, facing the camera across the desk. The desks are closer to the viewer than the agents. The elderly secretary sits behind the left desk, with her hand visibly raised beside her face; same gray bun, glasses and purple cardigan. The rat lawyer sits behind the right desk, same gray rat face and navy suit. Move each green chair to BEHIND its agent, so its back cushion peeks out behind shoulders. Remove both chairs from the foreground visitor aisle. CRITICAL: rotate each computer so its SCREEN faces its worker and the VIEWER SEES THE BACK of each MONITOR: matte dark casing with vents and central rear support mount, no visible screen. The second attached image shows the corrected desk/monitor orientation to use for both desks. Keyboard is on the far worker side between agent and monitor, mostly occluded from the viewer. No keyboard in front of the monitor on the visitor side. Near face of each desk is a pale oak modesty panel and plain sage cabinet outer panel, not drawers facing the viewer. Front-facing seated worker's lower body naturally occluded by desk. Secretary must look like she's requesting attention FROM HER WORKING CHAIR behind her monitor, not standing opposite the chair at the guest side. Keep monitor low enough her face and raised hand remain clearly visible. Rat similarly seated behind desk, face visible. Keep 'Administrativo' and 'Legal' labels and bottom-right chat with 'Tengo una revisión lista.' Keep all Spanish navbar text apart from shortened Pulpo branding. No added characters, no foreground chairs, no backwards workstations.",
+      "source": "/home/claude/.codex/generated_images/01a0cfad-30e6-7700-bb20-e9b64a83a326/exec-a3035b39-32c2-405f-8f3a-cf8491213e23.png"
+    }
+  }
+}

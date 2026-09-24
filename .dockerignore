@@ -1,0 +1,12 @@
+node_modules
+dist
+data
+.git
+.claude
+.codex
+.agents
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+deploy/hostinget
+*.zip

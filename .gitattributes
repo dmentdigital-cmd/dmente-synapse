@@ -1,0 +1,39 @@
+# BEGIN AMPERE CORE
+# Bloque gestionado por Ampere Core — "ampere detach" lo quita entero. No agregar acá
+# reglas propias del proyecto: escribilas FUERA de este bloque, así detach nunca las
+# toca.
+#
+# Comportamiento por defecto: detectar texto automáticamente, normalizar el
+# almacenamiento en el repo a LF. No fuerza el fin de línea del checkout local por sí
+# solo — eso es lo que las reglas de abajo hacen, a propósito, solo donde importa.
+* text=auto
+
+# Este mismo archivo (PARITY-06): sin una regla propia, su EOL de checkout queda
+# librado a `core.autocrlf` de cada colaborador, igual que el resto de archivos
+# gestionados de abajo antes de tener una regla explícita.
+.gitattributes text eol=lf
+
+# Archivos gestionados por el arnés (mismo alcance que isManagedScope/managed-path.js
+# en make-manifest.js: "CLAUDE.md" y todo bajo ".claude/"). El manifiesto v2 hashea
+# bytes EXACTOS (hash_raw, ver hash-file.js) — a propósito ya no colapsa CRLF/BOM,
+# porque dos archivos reales distintos no deben compartir hash. Pero eso mismo
+# significa que si el checkout de un colaborador difiere en fin de línea según su
+# core.autocrlf local, /update ve un archivo "modificado" que nadie tocó de verdad, y
+# detectSource() (make-manifest.js) puede degradar source_kind a
+# "unverified-directory" por una diferencia de bytes que no es una edición real.
+# Fijar LF en el CHECKOUT (no solo en el almacenamiento) elimina esa dependencia de
+# la configuración local de cada colaborador.
+CLAUDE.md text eol=lf
+.claude/** text eol=lf
+BLUEPRINT-*.md text eol=lf
+STACK-PROFILE-*.md text eol=lf
+
+# CLI global `ampere` (B6, tools/ampere-cli). Mismo motivo que arriba, con un
+# disparador extra: en Windows, `npm link`/`npm install` puede reescribir el bin con
+# CRLF, y sin fijar el EOL del checkout eso deja la copia central "modificada" (git
+# status muestra `M tools/ampere-cli/bin/ampere.js`) apenas se corre el paso de setup
+# documentado — y luego puede bloquear el `git pull --ff-only` de `ampere update` si
+# una actualización futura toca ese archivo (hallazgo FABLE-A01). Fijar LF en el
+# checkout de todo `tools/**` elimina esa divergencia entre canales.
+tools/** text eol=lf
+# END AMPERE CORE
