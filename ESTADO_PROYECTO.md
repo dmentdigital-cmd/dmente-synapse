@@ -288,8 +288,8 @@ El repositorio de producción está publicado en:
 Estado Git verificado:
 
 - rama publicada: `main`;
-- último commit de despliegue: `75da26e feat: prepare Dmente Synapse for Coolify deployment`;
-- árbol de trabajo local limpio después del último push;
+- último commit publicado: `e4f7b37 feat: refresh LuciaBot manager character`;
+- cambios de la nueva imagen y del estado publicados en `main`;
 - no se incluyeron `node_modules`, `dist`, `data/`, archivos `.env` ni `.claude/` en el repositorio.
 
 El proyecto incluye `Dockerfile`, puerto `3010`, health check `/api/health` y configuración para persistir SQLite en `/app/data`.
@@ -333,7 +333,7 @@ Estado actual verificado desde la interfaz desplegada:
 - LuciaBot aparece como gerente y orquestadora;
 - el inicio de sesión funciona con las variables configuradas en Coolify;
 - el dominio operativo es `https://synapse.dmentedigital.co`;
-- la nueva imagen futurista de LuciaBot está pendiente de publicarse mediante Git y redeploy;
+- la nueva imagen futurista de LuciaBot está publicada en Git y pendiente de redeploy en Coolify;
 - todavía no existe conexión real con un modelo de lenguaje externo, Telegram, Hermes, Calendar, correo o WhatsApp.
 
 Para conectar una LuciaBot operativa con un modelo o con Telegram se requiere implementar el conector correspondiente, definir sus credenciales como variables secretas en Coolify y añadir aprobación y auditoría antes de permitir acciones externas.
