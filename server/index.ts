@@ -3,9 +3,9 @@ import { readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { URL } from 'node:url'
 import { authStatus, clearSession, clearSessionCookie, login, setSessionCookie } from './auth.js'
-import { addAudit, addMessage, closeDatabase, createCommitment, createRequest, getLocalProfile, listAgents, listCommitments, listMessages, listPermissions, listRequests, updateRequestStatus } from './db.js'
+import { addAudit, addMessage, closeDatabase, createCommitment, createRequest, getLocalProfile, getRequest, listAgents, listCommitments, listMessages, listPermissions, listRequests, updateRequestStatus } from './db.js'
 import { buildReply, routeRequest } from './orchestrator.js'
-import { handleMcp } from './mcp.js'
+import { authorized, handleMcp } from './mcp.js'
 import type { Domain } from './types.js'
 
 const port = Number(process.env.PORT ?? 3010)
@@ -77,6 +77,20 @@ const server = createServer(async (req, res) => {
       const agentId = text(url.searchParams.get('agentId')) as Parameters<typeof listMessages>[0]
       if (!agentId) return send(res, 400, { error: 'agentId es obligatorio' })
       return send(res, 200, { messages: listMessages(agentId) })
+    }
+    if (req.method === 'POST' && url.pathname === '/api/hermes/reply') {
+      if (!authorized(req)) return send(res, 401, { error: 'MCP no autorizado' })
+      const input = await body(req)
+      const requestId = text(input.requestId)
+      const agentId = text(input.agentId) as Parameters<typeof addMessage>[0]['agentId']
+      const messageText = text(input.text)
+      const source = text(input.source, 'hermes-lucia')
+      if (!requestId || !agentId || !messageText) return send(res, 400, { error: 'requestId, agentId y text son obligatorios' })
+      if (!getRequest(requestId)) return send(res, 404, { error: 'request not found' })
+      if (!listAgents().some((agent) => agent.id === agentId)) return send(res, 400, { error: 'agentId no encontrado' })
+      const message = addMessage({ requestId, agentId, direction: 'agent', text: messageText })
+      addAudit({ requestId, action: 'hermes_reply_created', summary: messageText.slice(0, 120), source })
+      return send(res, 201, { message })
     }
     if (req.method === 'POST' && url.pathname === '/api/commitments') {
       const input = await body(req)

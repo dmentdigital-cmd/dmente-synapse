@@ -64,7 +64,8 @@ function App({ onLogout }: { onLogout: () => void }) {
       }
     }
     void hydrate()
-    return () => { cancelled = true }
+    const interval = window.setInterval(() => { void hydrate() }, 7000)
+    return () => { cancelled = true; window.clearInterval(interval) }
   }, [activeAgent, orderedAgents])
 
   async function sendMessage() {

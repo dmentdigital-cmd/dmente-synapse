@@ -75,6 +75,7 @@ No hay framework CSS. Los estilos se encuentran en `src/styles.css`.
 | `Dockerfile` | Imagen de producción que sirve React y la API Node.js en un solo servicio. |
 | `.dockerignore` | Archivos excluidos del contexto de construcción Docker. |
 | `server/orchestrator.ts` | Enrutamiento determinista inicial de LuciaBot. |
+| `server/mcp.ts` | Endpoint MCP remoto y herramientas de Synapse para Hermes. |
 | `server/types.ts` | Tipos de dominio del backend. |
 | `tsconfig.server.json` | Configuración TypeScript del backend. |
 | `package.json` | Dependencias y comandos del proyecto. |
@@ -147,6 +148,7 @@ También existen los activos `escritorio-futurista.png` y `silla-futurista.png`,
 - Navegación funcional entre Oficina, Agentes, Solicitudes y Configuración.
 - Panel de configuración que muestra el estado de la sesión y de Hermes.
 - Modal funcional para el botón `Añadir agente`, con aviso explícito de que la creación persistente todavía requiere backend.
+- Actualización automática del chat cada siete segundos para mostrar respuestas nuevas de Hermes/LuciaBot.
 - Adaptación básica para pantallas pequeñas.
 - Respeto de `prefers-reduced-motion`.
 
@@ -316,6 +318,10 @@ Estado de la integración MCP:
 - prueba directa del endpoint: `HTTP 200` para `initialize`;
 - descubrimiento de herramientas: confirmado mediante `tools/list`;
 - invocación real desde Hermes: confirmada con `synapse_get_profile`, que devolvió el perfil `diego-local`;
+- respuesta Hermes → Synapse implementada en `POST /api/hermes/reply`;
+- herramienta `synapse_reply_to_request` implementada y publicada en `tools/list`;
+- el endpoint valida el Bearer token, la solicitud existente y el agente, guarda `direction: agent` y registra `hermes_reply_created`;
+- el frontend consulta mensajes cada siete segundos para mostrar respuestas nuevas sin recarga manual;
 - MCP integrado de Coolify en esta sesión de Codex: no disponible;
 - no se han enviado credenciales ni tokens al repositorio o a esta conversación.
 
@@ -360,6 +366,7 @@ Estado verificado el 2026-09-24:
 - se añadió y habilitó una entrada `synapse_remote` apuntando a `https://synapse.dmentedigital.co/mcp`;
 - la configuración del MCP local antiguo todavía inicia `/home/diego/proyectos/repos/dmente-synapse/mcp/synapse-mcp-server.js`;
 - la conexión Hermes → Synapse fue validada mediante `initialize`, `tools/list` y una invocación real de `synapse_get_profile`;
+- la nueva respuesta interna fue probada localmente por HTTP y quedó asociada a un `requestId` existente;
 - el servicio `hermes-gateway` continúa en estado `active (running)` después del reinicio.
 
 No se debe eliminar el MCP local antiguo hasta decidir si otros flujos todavía lo utilizan. La integración remota ya está operativa.

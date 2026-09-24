@@ -146,8 +146,10 @@ export function listRequests(): RequestRecord[] {
   return rows.map((row) => ({ id: String(row.id), agentId: row.agent_id as AgentId, domain: row.domain as Domain, title: String(row.title), status: row.status as RequestStatus, riskLevel: row.risk_level as RequestRecord['riskLevel'], requiresApproval: Boolean(row.requires_approval), createdAt: String(row.created_at), updatedAt: String(row.updated_at) }))
 }
 
-export function addMessage(input: { requestId?: string; agentId: AgentId; direction: 'user' | 'agent'; text: string }): void {
-  db.prepare('INSERT INTO messages (id, request_id, agent_id, direction, text, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(randomUUID(), input.requestId ?? null, input.agentId, input.direction, input.text, new Date().toISOString())
+export function addMessage(input: { requestId?: string; agentId: AgentId; direction: 'user' | 'agent'; text: string }): MessageRecord {
+  const message: MessageRecord = { id: randomUUID(), requestId: input.requestId ?? null, agentId: input.agentId, direction: input.direction, text: input.text, createdAt: new Date().toISOString() }
+  db.prepare('INSERT INTO messages (id, request_id, agent_id, direction, text, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(message.id, message.requestId, message.agentId, message.direction, message.text, message.createdAt)
+  return message
 }
 
 export function listMessages(agentId: AgentId): MessageRecord[] {

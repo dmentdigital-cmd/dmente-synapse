@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { addAudit, addMessage, createCommitment, createRequest, getLocalProfile, listAgents, listCommitments, listMessages, listRequests } from './db.js'
+import { addAudit, addMessage, createCommitment, createRequest, getLocalProfile, getRequest, listAgents, listCommitments, listMessages, listRequests } from './db.js'
 import type { AgentId, Domain } from './types.js'
 
 const mcpToken = process.env.SYNAPSE_MCP_TOKEN
@@ -12,6 +12,7 @@ const toolDefinitions = [
   { name: 'synapse_list_agents', description: 'Lista los agentes disponibles en Dmente Synapse.', inputSchema: { type: 'object', properties: {} } },
   { name: 'synapse_list_requests', description: 'Lista las solicitudes registradas y su estado.', inputSchema: { type: 'object', properties: {} } },
   { name: 'synapse_list_messages', description: 'Lista mensajes de un agente.', inputSchema: { type: 'object', properties: { agentId: { type: 'string' } }, required: ['agentId'] } },
+  { name: 'synapse_reply_to_request', description: 'Permite a LuciaBot/Hermes responder dentro de una solicitud existente de Dmente Synapse. Guarda la respuesta como mensaje interno y no ejecuta acciones externas.', inputSchema: { type: 'object', properties: { requestId: { type: 'string', description: 'ID de la solicitud existente en Synapse.' }, agentId: { type: 'string', description: 'ID del agente que responde.' }, text: { type: 'string', description: 'Respuesta interna para mostrar en el chat visual.' } }, required: ['requestId', 'agentId', 'text'] } },
   { name: 'synapse_create_request', description: 'Registra una solicitud para seguimiento humano. Las acciones externas no se ejecutan automáticamente.', inputSchema: { type: 'object', properties: { title: { type: 'string' }, agentId: { type: 'string' }, domain: { type: 'string' } }, required: ['title', 'agentId', 'domain'] } },
   { name: 'synapse_add_message', description: 'Agrega un mensaje de Hermes o LuciaBot a la conversación.', inputSchema: { type: 'object', properties: { agentId: { type: 'string' }, text: { type: 'string' }, requestId: { type: 'string' } }, required: ['agentId', 'text'] } },
   { name: 'synapse_list_commitments', description: 'Lista compromisos personales, familiares y de agencia.', inputSchema: { type: 'object', properties: { domain: { type: 'string' } } } },
@@ -19,7 +20,7 @@ const toolDefinitions = [
 ]
 
 function digest(value: string): Buffer { return createHash('sha256').update(value).digest() }
-function authorized(req: IncomingMessage): boolean {
+export function authorized(req: IncomingMessage): boolean {
   if (!mcpToken) return false
   const received = req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : ''
   return received.length > 0 && timingSafeEqual(digest(received), digest(mcpToken))
@@ -43,6 +44,18 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     const agentId = text(args.agentId) as AgentId
     if (!agentId) throw new Error('agentId es obligatorio')
     return { messages: listMessages(agentId) }
+  }
+  if (name === 'synapse_reply_to_request') {
+    const requestId = text(args.requestId)
+    const agentId = text(args.agentId) as AgentId
+    const message = text(args.text)
+    if (!requestId || !agentId || !message) throw new Error('requestId, agentId y text son obligatorios')
+    const request = getRequest(requestId)
+    if (!request) throw new Error('request no encontrado')
+    if (!listAgents().some((agent) => agent.id === agentId)) throw new Error('agentId no encontrado')
+    const saved = addMessage({ requestId, agentId, direction: 'agent', text: message })
+    addAudit({ requestId, action: 'hermes_reply_created', summary: message.slice(0, 120), source: 'hermes-lucia' })
+    return { message: saved }
   }
   if (name === 'synapse_create_request') {
     const title = text(args.title)
