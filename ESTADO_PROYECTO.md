@@ -293,7 +293,7 @@ El repositorio de producción está publicado en:
 Estado Git verificado:
 
 - rama publicada: `main`;
-- último commit publicado: `e4f7b37 feat: refresh LuciaBot manager character`;
+- último commit publicado: `0c792fc feat: add protected Synapse MCP for Hermes`;
 - cambios de la nueva imagen y del estado publicados en `main`;
 - no se incluyeron `node_modules`, `dist`, `data/`, archivos `.env` ni `.claude/` en el repositorio.
 
