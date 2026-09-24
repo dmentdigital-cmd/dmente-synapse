@@ -5,6 +5,7 @@ import { URL } from 'node:url'
 import { authStatus, clearSession, clearSessionCookie, login, setSessionCookie } from './auth.js'
 import { addAudit, addMessage, closeDatabase, createCommitment, createRequest, getLocalProfile, listAgents, listCommitments, listMessages, listPermissions, listRequests, updateRequestStatus } from './db.js'
 import { buildReply, routeRequest } from './orchestrator.js'
+import { handleMcp } from './mcp.js'
 import type { Domain } from './types.js'
 
 const port = Number(process.env.PORT ?? 3010)
@@ -53,6 +54,7 @@ const server = createServer(async (req, res) => {
   try {
     if (req.method === 'OPTIONS') return send(res, 204, {})
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
+    if (url.pathname === '/mcp') return handleMcp(req, res)
     if (req.method === 'GET' && url.pathname === '/api/health') return send(res, 200, { ok: true, service: 'dmente-synapse-api', time: new Date().toISOString() })
     if (req.method === 'GET' && url.pathname === '/api/auth/session') return send(res, 200, authStatus(req))
     if (req.method === 'POST' && url.pathname === '/api/auth/login') {

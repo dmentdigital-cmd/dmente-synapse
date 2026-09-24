@@ -98,7 +98,7 @@ No hay framework CSS. Los estilos se encuentran en `src/styles.css`.
 
 Los cinco personajes se muestran en estaciones independientes y pueden seleccionarse para cambiar el chat activo.
 
-La imagen de LuciaBot fue reemplazada por un personaje futurista de gerente generado a partir de la referencia de perfil proporcionada por Diego. El nuevo activo conserva el fondo transparente, la paleta teal/índigo/magenta y el estilo visual de la oficina espacial. El logo de Dmente Digital no se reemplazó; continúa funcionando como identidad de la aplicación y de la oficina.
+La imagen de LuciaBot fue reemplazada por un personaje futurista de gerente generado a partir de la referencia de perfil proporcionada por Diego. El activo publicado para evitar caché del navegador es `public/assets/lucia-bot-gerente-v2.png`. Conserva el fondo transparente, la paleta teal/índigo/magenta y el estilo visual de la oficina espacial. El logo de Dmente Digital no se reemplazó; continúa funcionando como identidad de la aplicación y de la oficina.
 
 ### Estado de las poses
 
@@ -313,9 +313,10 @@ https://TU-DOMINIO-DE-COOLIFY/mcp
 Estado de la integración MCP:
 
 - MCP integrado de Coolify: disponible en la instancia según la documentación oficial;
+- MCP propio de Synapse: endpoint `/mcp` implementado con JSON-RPC, autenticación Bearer y herramientas iniciales;
 - MCP conectado a esta sesión de Codex: no disponible;
-- API token de Coolify: pendiente de crear en `Keys & Tokens > API Tokens`;
-- despliegue remoto de Dmente Synapse: pendiente;
+- token `SYNAPSE_MCP_TOKEN` en Coolify: pendiente de configurar;
+- registro del endpoint Synapse en Hermes: pendiente;
 - no se han enviado credenciales ni tokens al repositorio o a esta conversación.
 
 Variables que deberán configurarse como secretos en Coolify, no en GitHub:
@@ -325,6 +326,7 @@ SYNAPSE_OWNER_USERNAME=diego
 SYNAPSE_OWNER_PASSWORD=<contraseña_real>
 SYNAPSE_SESSION_SECRET=<clave_aleatoria_larga>
 SYNAPSE_DATA_DIR=/app/data
+SYNAPSE_MCP_TOKEN=<token_largo_para_Hermes>
 ```
 
 La conexión del MCP requiere habilitarlo en Coolify y registrarlo como servidor MCP en el cliente compatible. No se debe asumir que esta sesión tiene acceso hasta que el conector aparezca entre las herramientas disponibles.
@@ -338,10 +340,10 @@ Estado actual verificado desde la interfaz desplegada:
 - LuciaBot aparece como gerente y orquestadora;
 - el inicio de sesión funciona con las variables configuradas en Coolify;
 - el dominio operativo es `https://synapse.dmentedigital.co`;
-- la nueva imagen futurista de LuciaBot está publicada en Git y pendiente de redeploy en Coolify;
+- la nueva imagen futurista de LuciaBot está publicada en Git bajo un nombre versionado para evitar caché y pendiente de redeploy en Coolify;
 - todavía no existe conexión real con un modelo de lenguaje externo, Telegram, Hermes, Calendar, correo o WhatsApp.
 
-Para conectar una LuciaBot operativa con un modelo o con Telegram se requiere implementar el conector correspondiente, definir sus credenciales como variables secretas en Coolify y añadir aprobación y auditoría antes de permitir acciones externas.
+Para conectar una LuciaBot operativa con Hermes se debe registrar `https://synapse.dmentedigital.co/mcp` en Hermes y usar el mismo valor secreto configurado como `SYNAPSE_MCP_TOKEN` en Coolify. Las herramientas de escritura crean registros y solicitudes con aprobación; no ejecutan acciones externas automáticamente.
 
 ## 13. Inconsistencias conocidas
 
