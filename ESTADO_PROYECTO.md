@@ -570,3 +570,14 @@ Ampere Core es infraestructura temporal de construcción y no forma parte del pr
 ## 20. Criterio del estado actual
 
 El proyecto puede considerarse un **prototipo web desplegado con backend vertical slice y una integración MCP operativa con Hermes**. La interfaz pública, el inicio de sesión, la persistencia básica y la conexión Hermes → Synapse están verificadas. No debe presentarse todavía como un sistema multiagente autónomo ni como una integración operativa con Calendar, correo o WhatsApp.
+# Actualización 2026-09-25: Synapse, Hermes y Obsidian
+
+- Synapse puede llamar automáticamente a LuciaBot mediante Hermes API Server.
+- El endpoint de salud comprueba configuración y conectividad real con Hermes (`hermesReachable`) y conserva el último error técnico sin exponer credenciales.
+- Las llamadas a Hermes tienen un tiempo mínimo de 180 segundos y un reintento para fallos transitorios.
+- Las solicitudes admiten referencias compactas: `obsidianNote`, `sourcePath` y `sourceDriveFolder`.
+- API y MCP permiten crear solicitudes con esas referencias y actualizarlas mediante `synapse_update_request_sources`.
+- El panel de Solicitudes muestra agente, prioridad, siguiente acción y fuentes asociadas.
+- LuciaBot recibió una regla compacta para buscar selectivamente en `/home/diego/Obsidian`, leer solo notas relevantes, citar rutas y evitar copiar documentos largos a memoria.
+- No se creó una instancia PMA/Rackell porque todavía requiere una decisión explícita sobre separación de datos y permisos.
+- Pendiente de infraestructura: comprobar después del despliegue que el contenedor de Synapse alcanza Hermes en `10.0.1.1:8642`. El endpoint `/api/health` permite hacerlo sin ejecutar comandos en el VPS.

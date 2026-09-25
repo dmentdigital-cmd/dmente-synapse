@@ -51,6 +51,9 @@ export type RequestRecord = {
   riskLevel: 'low' | 'medium' | 'high'
   requiresApproval: boolean
   nextAction: string
+  obsidianNote: string | null
+  sourcePath: string | null
+  sourceDriveFolder: string | null
   createdAt: string
   updatedAt: string
 }

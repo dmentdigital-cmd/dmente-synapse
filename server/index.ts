@@ -3,10 +3,10 @@ import { readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { URL } from 'node:url'
 import { authStatus, clearSession, clearSessionCookie, login, setSessionCookie } from './auth.js'
-import { addAudit, addMessage, closeDatabase, createCommitment, createRequest, getLocalProfile, getRequest, listAgents, listCommitments, listMessages, listPermissions, listRequests, updateRequestStatus } from './db.js'
+import { addAudit, addMessage, closeDatabase, createCommitment, createRequest, getLocalProfile, getRequest, listAgents, listCommitments, listMessages, listPermissions, listRequests, updateRequestSources, updateRequestStatus } from './db.js'
 import { buildReply, routeRequest } from './orchestrator.js'
 import { authorized, handleMcp } from './mcp.js'
-import { isHermesConfigured, requestHermesReply } from './hermes.js'
+import { getHermesStatus, isHermesConfigured, requestHermesReply } from './hermes.js'
 import type { Domain } from './types.js'
 
 const port = Number(process.env.PORT ?? 3010)
@@ -38,14 +38,19 @@ async function completeWithHermes(input: { requestId: string; conversationAgentI
       riskLevel: input.decision.riskLevel,
       requiresApproval: input.decision.requiresApproval,
       nextAction: input.decision.nextAction,
+      obsidianNote: getRequest(input.requestId)?.obsidianNote,
+      sourcePath: getRequest(input.requestId)?.sourcePath,
+      sourceDriveFolder: getRequest(input.requestId)?.sourceDriveFolder,
       history: listMessages(input.conversationAgentId),
     })
     addMessage({ requestId: input.requestId, agentId: input.conversationAgentId, direction: 'agent', text: reply })
     addAudit({ requestId: input.requestId, action: 'hermes_reply_created', summary: reply.slice(0, 120), source: 'hermes-api-server' })
-  } catch {
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : 'Error desconocido'
+    console.error(`[Hermes] Solicitud ${input.requestId}: ${detail}`)
     const failure = 'No pude activar LuciaBot en Hermes para esta solicitud. El caso quedó registrado y puede revisarse desde Solicitudes.'
     addMessage({ requestId: input.requestId, agentId: input.conversationAgentId, direction: 'agent', text: failure })
-    addAudit({ requestId: input.requestId, action: 'hermes_reply_failed', summary: 'Hermes API no disponible o sin respuesta', source: 'synapse-api' })
+    addAudit({ requestId: input.requestId, action: 'hermes_reply_failed', summary: detail.slice(0, 240), source: 'synapse-api' })
   }
 }
 
@@ -79,7 +84,10 @@ const server = createServer(async (req, res) => {
     if (req.method === 'OPTIONS') return send(res, 204, {})
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
     if (url.pathname === '/mcp') return handleMcp(req, res)
-    if (req.method === 'GET' && url.pathname === '/api/health') return send(res, 200, { ok: true, service: 'dmente-synapse-api', hermesAutomaticReplies: isHermesConfigured(), time: new Date().toISOString() })
+    if (req.method === 'GET' && url.pathname === '/api/health') {
+      const hermes = await getHermesStatus()
+      return send(res, 200, { ok: true, service: 'dmente-synapse-api', hermesAutomaticReplies: hermes.configured, hermesReachable: hermes.reachable, hermesLastError: hermes.lastError, time: new Date().toISOString() })
+    }
     if (req.method === 'GET' && url.pathname === '/api/auth/session') return send(res, 200, authStatus(req))
     if (req.method === 'POST' && url.pathname === '/api/auth/login') {
       const input = await body(req)
@@ -148,6 +156,18 @@ const server = createServer(async (req, res) => {
       const request = updateRequestStatus(approvalMatch[1], approvalMatch[2] === 'approve' ? 'done' : 'cancelled')
       if (!request) return send(res, 404, { error: 'request not found' })
       addAudit({ requestId: request.id, action: approvalMatch[2], summary: request.title, source: 'manual' })
+      return send(res, 200, { request })
+    }
+    const sourcesMatch = url.pathname.match(/^\/api\/requests\/([^/]+)\/sources$/)
+    if (req.method === 'POST' && sourcesMatch) {
+      const input = await body(req)
+      const request = updateRequestSources(sourcesMatch[1], {
+        obsidianNote: input.obsidianNote === null ? null : text(input.obsidianNote) || undefined,
+        sourcePath: input.sourcePath === null ? null : text(input.sourcePath) || undefined,
+        sourceDriveFolder: input.sourceDriveFolder === null ? null : text(input.sourceDriveFolder) || undefined,
+      })
+      if (!request) return send(res, 404, { error: 'request not found' })
+      addAudit({ requestId: request.id, action: 'request_sources_updated', summary: 'Referencias documentales actualizadas', source: 'api' })
       return send(res, 200, { request })
     }
     if (req.method === 'GET' && !url.pathname.startsWith('/api/')) {

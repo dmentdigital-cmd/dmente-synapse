@@ -13,7 +13,7 @@ import type { AgentId, Message, Section } from './types'
 import './styles.css'
 
 type ApiMessage = { id: string; direction: 'user' | 'agent'; text: string; createdAt: string }
-type ApiRequest = { agentId: AgentId; status: 'pending' | 'in_progress' | 'waiting_approval' | 'done' | 'cancelled' }
+export type ApiRequest = { id: string; agentId: AgentId; title: string; projectId: string | null; priority: 'low' | 'normal' | 'high' | 'urgent'; status: 'pending' | 'in_progress' | 'waiting_approval' | 'done' | 'cancelled'; nextAction: string; obsidianNote: string | null; sourcePath: string | null; sourceDriveFolder: string | null }
 type AuthState = { configured: boolean; authenticated: boolean; userId?: string }
 
 function Root() {
@@ -37,6 +37,7 @@ function App({ onLogout }: { onLogout: () => void }) {
   const [messages, setMessages] = useState(initialMessages)
   const [pending, setPending] = useState<Record<AgentId, boolean>>(() => Object.keys(agents).reduce((state, id) => ({ ...state, [id]: false }), {} as Record<AgentId, boolean>))
   const [processing, setProcessing] = useState<Record<AgentId, boolean>>(() => Object.keys(agents).reduce((state, id) => ({ ...state, [id]: false }), {} as Record<AgentId, boolean>))
+  const [requests, setRequests] = useState<ApiRequest[]>([])
   const [draft, setDraft] = useState('')
   const [section, setSection] = useState<Section>('office')
   const [chatMinimized, setChatMinimized] = useState(false)
@@ -56,6 +57,7 @@ function App({ onLogout }: { onLogout: () => void }) {
         const apiMessages = await messagesResponse.json() as { messages: ApiMessage[] }
         if (cancelled) return
         const activeAgents = requests.requests.filter((request) => request.status !== 'done' && request.status !== 'cancelled').map((request) => request.agentId)
+        setRequests(requests.requests)
         setPending((current) => orderedAgents.reduce((next, [id]) => ({ ...next, [id]: activeAgents.includes(id) }), current))
         if (apiMessages.messages.length > 0) {
           setMessages((current) => ({ ...current, [activeAgent]: apiMessages.messages.map((message) => ({ from: message.direction, text: message.text, time: new Date(message.createdAt).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }) })) }))
@@ -97,7 +99,7 @@ function App({ onLogout }: { onLogout: () => void }) {
     <Topbar section={section} pendingCount={pendingCount} setSection={setSection} setActiveAgent={setActiveAgent} onAddAgent={() => setAddAgentOpen(true)} onLogout={onLogout} />
     <main className="workspace">
       <OfficeStage activeAgent={activeAgent} pending={pending} pendingCount={pendingCount} setActiveAgent={setActiveAgent} />
-      {section === 'agents' ? <AgentsPanel setActiveAgent={setActiveAgent} close={() => setSection('office')} /> : section === 'requests' ? <RequestsPanel pending={pending} pendingCount={pendingCount} setActiveAgent={setActiveAgent} close={() => setSection('office')} /> : section === 'settings' ? <SettingsPanel onLogout={onLogout} /> : chatMinimized ? <ChatDock agent={agent} pending={pending[activeAgent]} restore={() => setChatMinimized(false)} /> : <ChatPanel agent={agent} messages={messages[activeAgent] as Message[]} pending={pending[activeAgent]} processing={processing[activeAgent]} apiReady={apiReady} draft={draft} setDraft={setDraft} sendMessage={sendMessage} minimize={() => setChatMinimized(true)} togglePending={() => setPending((current) => ({ ...current, [activeAgent]: !current[activeAgent] }))} />}
+      {section === 'agents' ? <AgentsPanel setActiveAgent={setActiveAgent} close={() => setSection('office')} /> : section === 'requests' ? <RequestsPanel requests={requests} setActiveAgent={setActiveAgent} close={() => setSection('office')} /> : section === 'settings' ? <SettingsPanel onLogout={onLogout} /> : chatMinimized ? <ChatDock agent={agent} pending={pending[activeAgent]} restore={() => setChatMinimized(false)} /> : <ChatPanel agent={agent} messages={messages[activeAgent] as Message[]} pending={pending[activeAgent]} processing={processing[activeAgent]} apiReady={apiReady} draft={draft} setDraft={setDraft} sendMessage={sendMessage} minimize={() => setChatMinimized(true)} togglePending={() => setPending((current) => ({ ...current, [activeAgent]: !current[activeAgent] }))} />}
     </main>
     {addAgentOpen && <AddAgentPanel close={() => setAddAgentOpen(false)} />}
   </div>

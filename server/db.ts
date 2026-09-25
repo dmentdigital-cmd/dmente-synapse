@@ -52,6 +52,9 @@ db.exec(`
     risk_level TEXT NOT NULL,
     requires_approval INTEGER NOT NULL,
     next_action TEXT NOT NULL DEFAULT 'Revisar solicitud',
+    obsidian_note TEXT,
+    source_path TEXT,
+    source_drive_folder TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
@@ -77,6 +80,9 @@ const requestColumns = new Set((db.prepare('PRAGMA table_info(requests)').all() 
 if (!requestColumns.has('project_id')) db.exec('ALTER TABLE requests ADD COLUMN project_id TEXT')
 if (!requestColumns.has('priority')) db.exec("ALTER TABLE requests ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal'")
 if (!requestColumns.has('next_action')) db.exec("ALTER TABLE requests ADD COLUMN next_action TEXT NOT NULL DEFAULT 'Revisar solicitud'")
+if (!requestColumns.has('obsidian_note')) db.exec('ALTER TABLE requests ADD COLUMN obsidian_note TEXT')
+if (!requestColumns.has('source_path')) db.exec('ALTER TABLE requests ADD COLUMN source_path TEXT')
+if (!requestColumns.has('source_drive_folder')) db.exec('ALTER TABLE requests ADD COLUMN source_drive_folder TEXT')
 
 const seedAgents: Agent[] = [
   { id: 'gerente', name: 'LuciaBot', role: 'Gerente y orquestadora', domain: 'personal' },
@@ -140,11 +146,11 @@ export function listCommitments(domain?: Domain): Commitment[] {
   }))
 }
 
-export function createRequest(input: { agentId: AgentId; domain: Domain; title: string; projectId?: string | null; priority?: RequestRecord['priority']; riskLevel: RequestRecord['riskLevel']; requiresApproval: boolean; nextAction?: string }): RequestRecord {
+export function createRequest(input: { agentId: AgentId; domain: Domain; title: string; projectId?: string | null; priority?: RequestRecord['priority']; riskLevel: RequestRecord['riskLevel']; requiresApproval: boolean; nextAction?: string; obsidianNote?: string | null; sourcePath?: string | null; sourceDriveFolder?: string | null }): RequestRecord {
   const now = new Date().toISOString()
-  const request: RequestRecord = { id: randomUUID(), agentId: input.agentId, domain: input.domain, title: input.title, projectId: input.projectId ?? null, priority: input.priority ?? 'normal', status: input.requiresApproval ? 'waiting_approval' : 'in_progress', riskLevel: input.riskLevel, requiresApproval: input.requiresApproval, nextAction: input.nextAction ?? 'Revisar solicitud', createdAt: now, updatedAt: now }
-  db.prepare('INSERT INTO requests (id, agent_id, domain, title, project_id, priority, status, risk_level, requires_approval, next_action, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(request.id, request.agentId, request.domain, request.title, request.projectId, request.priority, request.status, request.riskLevel, request.requiresApproval ? 1 : 0, request.nextAction, now, now)
+  const request: RequestRecord = { id: randomUUID(), agentId: input.agentId, domain: input.domain, title: input.title, projectId: input.projectId ?? null, priority: input.priority ?? 'normal', status: input.requiresApproval ? 'waiting_approval' : 'in_progress', riskLevel: input.riskLevel, requiresApproval: input.requiresApproval, nextAction: input.nextAction ?? 'Revisar solicitud', obsidianNote: input.obsidianNote ?? null, sourcePath: input.sourcePath ?? null, sourceDriveFolder: input.sourceDriveFolder ?? null, createdAt: now, updatedAt: now }
+  db.prepare('INSERT INTO requests (id, agent_id, domain, title, project_id, priority, status, risk_level, requires_approval, next_action, obsidian_note, source_path, source_drive_folder, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(request.id, request.agentId, request.domain, request.title, request.projectId, request.priority, request.status, request.riskLevel, request.requiresApproval ? 1 : 0, request.nextAction, request.obsidianNote, request.sourcePath, request.sourceDriveFolder, now, now)
   return request
 }
 
@@ -154,15 +160,28 @@ export function updateRequestStatus(id: string, status: RequestStatus): RequestR
   return getRequest(id)
 }
 
+export function updateRequestSources(id: string, sources: { obsidianNote?: string | null; sourcePath?: string | null; sourceDriveFolder?: string | null }): RequestRecord | null {
+  if (!getRequest(id)) return null
+  const current = getRequest(id)!
+  const updatedAt = new Date().toISOString()
+  db.prepare('UPDATE requests SET obsidian_note = ?, source_path = ?, source_drive_folder = ?, updated_at = ? WHERE id = ?')
+    .run(sources.obsidianNote === undefined ? current.obsidianNote : sources.obsidianNote, sources.sourcePath === undefined ? current.sourcePath : sources.sourcePath, sources.sourceDriveFolder === undefined ? current.sourceDriveFolder : sources.sourceDriveFolder, updatedAt, id)
+  return getRequest(id)
+}
+
+function requestFromRow(row: Record<string, unknown>): RequestRecord {
+  return { id: String(row.id), agentId: row.agent_id as AgentId, domain: row.domain as Domain, title: String(row.title), projectId: row.project_id ? String(row.project_id) : null, priority: (row.priority ?? 'normal') as RequestRecord['priority'], status: row.status as RequestStatus, riskLevel: row.risk_level as RequestRecord['riskLevel'], requiresApproval: Boolean(row.requires_approval), nextAction: String(row.next_action ?? 'Revisar solicitud'), obsidianNote: row.obsidian_note ? String(row.obsidian_note) : null, sourcePath: row.source_path ? String(row.source_path) : null, sourceDriveFolder: row.source_drive_folder ? String(row.source_drive_folder) : null, createdAt: String(row.created_at), updatedAt: String(row.updated_at) }
+}
+
 export function getRequest(id: string): RequestRecord | null {
   const row = db.prepare('SELECT * FROM requests WHERE id = ?').get(id) as Record<string, unknown> | undefined
   if (!row) return null
-  return { id: String(row.id), agentId: row.agent_id as AgentId, domain: row.domain as Domain, title: String(row.title), projectId: row.project_id ? String(row.project_id) : null, priority: (row.priority ?? 'normal') as RequestRecord['priority'], status: row.status as RequestStatus, riskLevel: row.risk_level as RequestRecord['riskLevel'], requiresApproval: Boolean(row.requires_approval), nextAction: String(row.next_action ?? 'Revisar solicitud'), createdAt: String(row.created_at), updatedAt: String(row.updated_at) }
+  return requestFromRow(row)
 }
 
 export function listRequests(): RequestRecord[] {
   const rows = db.prepare('SELECT * FROM requests ORDER BY created_at DESC').all() as Record<string, unknown>[]
-  return rows.map((row) => ({ id: String(row.id), agentId: row.agent_id as AgentId, domain: row.domain as Domain, title: String(row.title), projectId: row.project_id ? String(row.project_id) : null, priority: (row.priority ?? 'normal') as RequestRecord['priority'], status: row.status as RequestStatus, riskLevel: row.risk_level as RequestRecord['riskLevel'], requiresApproval: Boolean(row.requires_approval), nextAction: String(row.next_action ?? 'Revisar solicitud'), createdAt: String(row.created_at), updatedAt: String(row.updated_at) }))
+  return rows.map(requestFromRow)
 }
 
 export function addMessage(input: { requestId?: string; agentId: AgentId; direction: 'user' | 'agent'; text: string }): MessageRecord {

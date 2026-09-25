@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { addAudit, addMessage, createCommitment, createRequest, getLocalProfile, getRequest, listAgents, listCommitments, listMessages, listRequests } from './db.js'
+import { addAudit, addMessage, createCommitment, createRequest, getLocalProfile, getRequest, listAgents, listCommitments, listMessages, listRequests, updateRequestSources } from './db.js'
 import type { AgentId, Domain } from './types.js'
 
 const mcpToken = process.env.SYNAPSE_MCP_TOKEN
@@ -13,7 +13,8 @@ const toolDefinitions = [
   { name: 'synapse_list_requests', description: 'Lista las solicitudes registradas y su estado.', inputSchema: { type: 'object', properties: {} } },
   { name: 'synapse_list_messages', description: 'Lista mensajes de un agente.', inputSchema: { type: 'object', properties: { agentId: { type: 'string' } }, required: ['agentId'] } },
   { name: 'synapse_reply_to_request', description: 'Permite a LuciaBot/Hermes responder dentro de una solicitud existente de Dmente Synapse. Guarda la respuesta como mensaje interno y no ejecuta acciones externas.', inputSchema: { type: 'object', properties: { requestId: { type: 'string', description: 'ID de la solicitud existente en Synapse.' }, agentId: { type: 'string', description: 'ID del agente que responde.' }, text: { type: 'string', description: 'Respuesta interna para mostrar en el chat visual.' } }, required: ['requestId', 'agentId', 'text'] } },
-  { name: 'synapse_create_request', description: 'Registra una solicitud interna con agente, dominio, proyecto, prioridad y siguiente acción. No ejecuta acciones externas.', inputSchema: { type: 'object', properties: { title: { type: 'string' }, agentId: { type: 'string' }, domain: { type: 'string' }, projectId: { type: 'string' }, priority: { type: 'string', enum: ['low', 'normal', 'high', 'urgent'] }, riskLevel: { type: 'string', enum: ['low', 'medium', 'high'] }, requiresApproval: { type: 'boolean' }, nextAction: { type: 'string' } }, required: ['title', 'agentId', 'domain'] } },
+  { name: 'synapse_create_request', description: 'Registra una solicitud interna con agente, dominio, proyecto, prioridad, siguiente acción y referencias documentales. No ejecuta acciones externas.', inputSchema: { type: 'object', properties: { title: { type: 'string' }, agentId: { type: 'string' }, domain: { type: 'string' }, projectId: { type: 'string' }, priority: { type: 'string', enum: ['low', 'normal', 'high', 'urgent'] }, riskLevel: { type: 'string', enum: ['low', 'medium', 'high'] }, requiresApproval: { type: 'boolean' }, nextAction: { type: 'string' }, obsidianNote: { type: 'string' }, sourcePath: { type: 'string' }, sourceDriveFolder: { type: 'string' } }, required: ['title', 'agentId', 'domain'] } },
+  { name: 'synapse_update_request_sources', description: 'Agrega o actualiza en una solicitud las referencias a Obsidian, estado canónico local o carpeta de Drive.', inputSchema: { type: 'object', properties: { requestId: { type: 'string' }, obsidianNote: { type: 'string' }, sourcePath: { type: 'string' }, sourceDriveFolder: { type: 'string' } }, required: ['requestId'] } },
   { name: 'synapse_add_message', description: 'Agrega un mensaje de Hermes o LuciaBot a la conversación.', inputSchema: { type: 'object', properties: { agentId: { type: 'string' }, text: { type: 'string' }, requestId: { type: 'string' } }, required: ['agentId', 'text'] } },
   { name: 'synapse_list_commitments', description: 'Lista compromisos personales, familiares y de agencia.', inputSchema: { type: 'object', properties: { domain: { type: 'string' } } } },
   { name: 'synapse_create_commitment', description: 'Registra un compromiso. No envía mensajes ni crea eventos externos.', inputSchema: { type: 'object', properties: { title: { type: 'string' }, domain: { type: 'string' }, people: { type: 'array', items: { type: 'string' } }, startsAt: { type: 'string' }, dueAt: { type: 'string' } }, required: ['title', 'domain'] } },
@@ -64,9 +65,17 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     if (!title || !agentId || !domain) throw new Error('title, agentId y domain son obligatorios')
     const priority = text(args.priority) as 'low' | 'normal' | 'high' | 'urgent'
     const riskLevel = text(args.riskLevel) as 'low' | 'medium' | 'high'
-    const request = createRequest({ agentId, domain, title, projectId: text(args.projectId) || null, priority: priority || 'normal', riskLevel: riskLevel || 'medium', requiresApproval: args.requiresApproval !== false, nextAction: text(args.nextAction) || 'Revisar solicitud' })
+    const request = createRequest({ agentId, domain, title, projectId: text(args.projectId) || null, priority: priority || 'normal', riskLevel: riskLevel || 'medium', requiresApproval: args.requiresApproval !== false, nextAction: text(args.nextAction) || 'Revisar solicitud', obsidianNote: text(args.obsidianNote) || null, sourcePath: text(args.sourcePath) || null, sourceDriveFolder: text(args.sourceDriveFolder) || null })
     addAudit({ requestId: request.id, action: 'mcp_request_created', summary: request.title, source: 'hermes-mcp' })
     return { request, requiresApproval: true }
+  }
+  if (name === 'synapse_update_request_sources') {
+    const requestId = text(args.requestId)
+    if (!requestId) throw new Error('requestId es obligatorio')
+    const request = updateRequestSources(requestId, { obsidianNote: text(args.obsidianNote) || undefined, sourcePath: text(args.sourcePath) || undefined, sourceDriveFolder: text(args.sourceDriveFolder) || undefined })
+    if (!request) throw new Error('request no encontrado')
+    addAudit({ requestId, action: 'request_sources_updated', summary: 'Referencias documentales actualizadas', source: 'hermes-mcp' })
+    return { request }
   }
   if (name === 'synapse_add_message') {
     const agentId = text(args.agentId) as AgentId
