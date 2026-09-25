@@ -6,6 +6,7 @@ import { authStatus, clearSession, clearSessionCookie, login, setSessionCookie }
 import { addAudit, addMessage, closeDatabase, createCommitment, createRequest, getLocalProfile, getRequest, listAgents, listCommitments, listMessages, listPermissions, listRequests, updateRequestStatus } from './db.js'
 import { buildReply, routeRequest } from './orchestrator.js'
 import { authorized, handleMcp } from './mcp.js'
+import { isHermesConfigured, requestHermesReply } from './hermes.js'
 import type { Domain } from './types.js'
 
 const port = Number(process.env.PORT ?? 3010)
@@ -24,6 +25,29 @@ async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
 }
 
 function text(value: unknown, fallback = ''): string { return typeof value === 'string' ? value.trim() : fallback }
+
+async function completeWithHermes(input: { requestId: string; conversationAgentId: Parameters<typeof addMessage>[0]['agentId']; decision: ReturnType<typeof routeRequest> }): Promise<void> {
+  try {
+    const reply = await requestHermesReply({
+      requestId: input.requestId,
+      conversationAgentId: input.conversationAgentId,
+      assignedAgentId: input.decision.agentId,
+      domain: input.decision.domain,
+      projectId: input.decision.projectId,
+      priority: input.decision.priority,
+      riskLevel: input.decision.riskLevel,
+      requiresApproval: input.decision.requiresApproval,
+      nextAction: input.decision.nextAction,
+      history: listMessages(input.conversationAgentId),
+    })
+    addMessage({ requestId: input.requestId, agentId: input.conversationAgentId, direction: 'agent', text: reply })
+    addAudit({ requestId: input.requestId, action: 'hermes_reply_created', summary: reply.slice(0, 120), source: 'hermes-api-server' })
+  } catch {
+    const failure = 'No pude activar LuciaBot en Hermes para esta solicitud. El caso quedó registrado y puede revisarse desde Solicitudes.'
+    addMessage({ requestId: input.requestId, agentId: input.conversationAgentId, direction: 'agent', text: failure })
+    addAudit({ requestId: input.requestId, action: 'hermes_reply_failed', summary: 'Hermes API no disponible o sin respuesta', source: 'synapse-api' })
+  }
+}
 
 function contentType(filePath: string): string {
   const extension = path.extname(filePath).toLowerCase()
@@ -55,7 +79,7 @@ const server = createServer(async (req, res) => {
     if (req.method === 'OPTIONS') return send(res, 204, {})
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
     if (url.pathname === '/mcp') return handleMcp(req, res)
-    if (req.method === 'GET' && url.pathname === '/api/health') return send(res, 200, { ok: true, service: 'dmente-synapse-api', time: new Date().toISOString() })
+    if (req.method === 'GET' && url.pathname === '/api/health') return send(res, 200, { ok: true, service: 'dmente-synapse-api', hermesAutomaticReplies: isHermesConfigured(), time: new Date().toISOString() })
     if (req.method === 'GET' && url.pathname === '/api/auth/session') return send(res, 200, authStatus(req))
     if (req.method === 'POST' && url.pathname === '/api/auth/login') {
       const input = await body(req)
@@ -105,12 +129,19 @@ const server = createServer(async (req, res) => {
       const message = text(input.text)
       if (!message) return send(res, 400, { error: 'text es obligatorio' })
       const decision = routeRequest(message)
+      const requestedAgentId = text(input.agentId) as Parameters<typeof addMessage>[0]['agentId']
+      const conversationAgentId = requestedAgentId && listAgents().some((agent) => agent.id === requestedAgentId) ? requestedAgentId : decision.agentId
       const request = createRequest({ agentId: decision.agentId, domain: decision.domain, title: message.slice(0, 120), projectId: decision.projectId, priority: decision.priority, riskLevel: decision.riskLevel, requiresApproval: decision.requiresApproval, nextAction: decision.nextAction })
-      addMessage({ requestId: request.id, agentId: decision.agentId, direction: 'user', text: message })
+      addMessage({ requestId: request.id, agentId: conversationAgentId, direction: 'user', text: message })
+      if (isHermesConfigured()) {
+        void completeWithHermes({ requestId: request.id, conversationAgentId, decision })
+        addAudit({ requestId: request.id, action: 'hermes_reply_queued', summary: `${decision.agentId}/${decision.domain}`, source: 'synapse-api' })
+        return send(res, 202, { request, decision, conversationAgentId, processing: true })
+      }
       const reply = buildReply(decision, message)
-      addMessage({ requestId: request.id, agentId: decision.agentId, direction: 'agent', text: reply })
+      addMessage({ requestId: request.id, agentId: conversationAgentId, direction: 'agent', text: reply })
       addAudit({ requestId: request.id, action: 'request_routed', summary: `${decision.agentId}/${decision.domain}`, source: 'local-decision-provider' })
-      return send(res, 201, { request, decision, reply })
+      return send(res, 201, { request, decision, conversationAgentId, reply })
     }
     const approvalMatch = url.pathname.match(/^\/api\/requests\/([^/]+)\/(approve|reject)$/)
     if (req.method === 'POST' && approvalMatch) {

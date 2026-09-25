@@ -1,7 +1,7 @@
 import type { AgentId, Domain, RouteDecision } from './types.js'
 
 const includesAny = (text: string, words: string[]) => words.some((word) => text.includes(word))
-const approvalWords = ['envía', 'enviar', 'publica', 'publicar', 'cambia', 'modifica', 'paga', 'pagar', 'deploy', 'despliegue', 'producción', 'webhook', 'commit', 'push']
+const approvalWords = ['envía', 'enviar', 'responde', 'responder', 'contesta', 'publica', 'publicar', 'cambia', 'modifica', 'paga', 'pagar', 'deploy', 'despliegue', 'producción', 'webhook', 'commit', 'push']
 
 type Rule = {
   words: string[]
@@ -21,6 +21,7 @@ const rules: Rule[] = [
   { words: ['presupuesto familiar', 'pago familiar', 'gasto familiar', 'mensualidad', 'matrícula'], agentId: 'finanzas-familiares', domain: 'finance', projectId: 'finanzas-familiares', reason: 'Corresponde a finanzas personales o familiares.', nextAction: 'Registrar monto, fecha y estado sin ejecutar pagos.', alwaysApproval: true },
   { words: ['platzi', 'uemi', 'curso', 'certificación', 'ruta de aprendizaje', 'comunidad school'], agentId: 'educacion-aprendizaje', domain: 'learning', projectId: 'formacion-dmente', reason: 'Corresponde a aprendizaje continuo.', nextAction: 'Definir idea útil, aplicación Dmente y próxima acción.' },
   { words: ['obsidian', 'base de conocimiento', 'wiki', 'documentación', 'procedimiento', 'índice de notas'], agentId: 'conocimiento-obsidian', domain: 'knowledge', projectId: 'conocimiento-dmente', reason: 'Corresponde a memoria externa y documentación.', nextAction: 'Actualizar el estado canónico evitando duplicados.' },
+  { words: ['noticia de inteligencia artificial', 'noticia relevante', 'novedad de ia', 'tendencia de ia', 'actualidad de ia'], agentId: 'educacion-aprendizaje', domain: 'learning', projectId: 'inteligencia-artificial-dmente', reason: 'Corresponde a vigilancia y aprendizaje sobre inteligencia artificial.', nextAction: 'Verificar la fuente, resumir el impacto y proponer una aplicación para Dmente.' },
   { words: ['producto vértice', 'vertice crm', 'vértice crm', 'número oficial', 'crm vértice'], agentId: 'producto-vertice', domain: 'product', projectId: 'vertice', riskLevel: 'medium', reason: 'Corresponde al producto Vértice.', nextAction: 'Preparar propuesta de producto y validar dependencias.' },
   { words: ['producto synapse', 'agentes synapse', 'ui synapse', 'mcp synapse', 'solicitudes synapse'], agentId: 'producto-synapse', domain: 'product', projectId: 'dmente-synapse', riskLevel: 'medium', reason: 'Corresponde al producto Dmente Synapse.', nextAction: 'Definir cambio, criterio de aceptación y prueba.' },
   { words: ['whatsapp', 'chat comercial', 'conversación comercial', 'no_contactar'], agentId: 'whatsapp-conversaciones', domain: 'messaging', projectId: 'whatsapp-dmente', riskLevel: 'medium', reason: 'Corresponde a mensajería y clasificación de conversaciones.', nextAction: 'Clasificar y preparar un borrador para aprobación.' },
@@ -30,6 +31,7 @@ const rules: Rule[] = [
   { words: ['código', 'bug', 'error', 'repositorio', 'github', 'coolify', 'deploy', 'despliegue', 'mcp', 'integración', 'docker', 'prueba técnica'], agentId: 'tecnico', domain: 'technology', riskLevel: 'medium', reason: 'Se relaciona con desarrollo, integraciones o infraestructura.', nextAction: 'Diagnosticar y proponer cambio verificable.' },
   { words: ['cobro', 'factura', 'facturación', 'rentabilidad', 'cuenta por cobrar', 'finanzas dmente'], agentId: 'finanzas-dmente', domain: 'finance', projectId: 'finanzas-dmente', riskLevel: 'medium', reason: 'Se relaciona con finanzas de la agencia.', nextAction: 'Registrar estado, fecha y acción de seguimiento.', alwaysApproval: true },
   { words: ['proyecto', 'pendiente', 'prioridad', 'bitácora', 'pmo', 'estado semanal', 'próximo paso'], agentId: 'pmo', domain: 'projects', reason: 'Se relaciona con organización y seguimiento de proyectos.', nextAction: 'Actualizar estado, riesgo y próximo paso.' },
+  { words: ['correo', 'gmail', 'email', 'outlook'], agentId: 'secretaria', domain: 'agency', projectId: 'comunicaciones-dmente', riskLevel: 'medium', reason: 'Se relaciona con comunicaciones de la agencia.', nextAction: 'Consultar el correo autorizado y preparar un resumen o borrador.' },
   { words: ['agenda', 'reunión', 'recordatorio', 'compromiso', 'calendario'], agentId: 'secretaria', domain: 'personal', reason: 'Se relaciona con agenda o administración.', nextAction: 'Registrar fecha, participantes y acción pendiente.' },
 ]
 
@@ -42,7 +44,20 @@ export function routeRequest(rawText: string): RouteDecision {
   return { agentId: rule.agentId, domain: rule.domain, projectId: rule.projectId ?? null, priority: rule.priority ?? 'normal', riskLevel: elevatedRisk, requiresApproval, nextAction: rule.nextAction, llmNeeded: false, reason: rule.reason }
 }
 
-export function buildReply(decision: RouteDecision, _text: string): string {
+export function buildReply(decision: RouteDecision, rawText: string): string {
+  const text = rawText.toLowerCase()
+  if (includesAny(text, ['correo', 'gmail', 'email', 'outlook'])) {
+    return 'Ahora mismo no puedo consultar el correo de la agencia porque Synapse no tiene un conector de correo configurado. Puedo dejar la solicitud registrada; para leerlo debemos conectar Gmail u Outlook primero en modo de solo lectura.'
+  }
+  if (includesAny(text, ['calendar', 'calendario de google', 'google calendar'])) {
+    return 'Ahora mismo no puedo consultar Google Calendar porque el conector todavía no está configurado. Puedo registrar el compromiso dentro de Synapse sin crear eventos externos.'
+  }
+  if (includesAny(text, ['puedes consultar whatsapp', 'puedes revisar whatsapp', 'tienes acceso a whatsapp'])) {
+    return 'Ahora mismo no puedo consultar WhatsApp desde Synapse porque no existe un conector de lectura autorizado. Puedo registrar la solicitud y preparar el flujo de conexión sin enviar mensajes.'
+  }
+  if (decision.llmNeeded) {
+    return 'Recibí la solicitud y la dejé registrada para LuciaBot. Indícame en una frase qué resultado necesitas para asignarla al agente correcto.'
+  }
   const labels: Record<AgentId, string> = {
     gerente: 'LuciaBot', secretaria: 'Secretaria', 'colegio-lucia': 'Colegio Lucía', 'salud-familiar': 'Salud Familiar',
     'finanzas-familiares': 'Finanzas Familiares', 'educacion-aprendizaje': 'Educación', 'conocimiento-obsidian': 'Conocimiento',

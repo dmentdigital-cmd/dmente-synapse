@@ -36,6 +36,7 @@ function App({ onLogout }: { onLogout: () => void }) {
   const [activeAgent, setActiveAgent] = useState<AgentId>('secretaria')
   const [messages, setMessages] = useState(initialMessages)
   const [pending, setPending] = useState<Record<AgentId, boolean>>(() => Object.keys(agents).reduce((state, id) => ({ ...state, [id]: false }), {} as Record<AgentId, boolean>))
+  const [processing, setProcessing] = useState<Record<AgentId, boolean>>(() => Object.keys(agents).reduce((state, id) => ({ ...state, [id]: false }), {} as Record<AgentId, boolean>))
   const [draft, setDraft] = useState('')
   const [section, setSection] = useState<Section>('office')
   const [chatMinimized, setChatMinimized] = useState(false)
@@ -58,6 +59,7 @@ function App({ onLogout }: { onLogout: () => void }) {
         setPending((current) => orderedAgents.reduce((next, [id]) => ({ ...next, [id]: activeAgents.includes(id) }), current))
         if (apiMessages.messages.length > 0) {
           setMessages((current) => ({ ...current, [activeAgent]: apiMessages.messages.map((message) => ({ from: message.direction, text: message.text, time: new Date(message.createdAt).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }) })) }))
+          if (apiMessages.messages[apiMessages.messages.length - 1]?.direction === 'agent') setProcessing((current) => current[activeAgent] ? { ...current, [activeAgent]: false } : current)
         }
         setApiReady(true)
       } catch {
@@ -73,15 +75,20 @@ function App({ onLogout }: { onLogout: () => void }) {
     const text = draft.trim()
     if (!text) return
     setMessages((current) => ({ ...current, [activeAgent]: [...current[activeAgent], { from: 'user', text, time: 'ahora' }] }))
+    setProcessing((current) => ({ ...current, [activeAgent]: true }))
     setDraft('')
     try {
       const response = await fetch('/api/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId: activeAgent, text }) })
       if (!response.ok) throw new Error('La API no respondió correctamente')
-      const data = await response.json() as { reply?: string }
-      if (data.reply) setMessages((current) => ({ ...current, [activeAgent]: [...current[activeAgent], { from: 'agent', text: data.reply!, time: 'ahora' }] }))
+      const data = await response.json() as { reply?: string; processing?: boolean }
+      if (data.reply) {
+        setMessages((current) => ({ ...current, [activeAgent]: [...current[activeAgent], { from: 'agent', text: data.reply!, time: 'ahora' }] }))
+        setProcessing((current) => ({ ...current, [activeAgent]: false }))
+      } else if (!data.processing) setProcessing((current) => ({ ...current, [activeAgent]: false }))
       setApiReady(true)
     } catch {
       setApiReady(false)
+      setProcessing((current) => ({ ...current, [activeAgent]: false }))
       setMessages((current) => ({ ...current, [activeAgent]: [...current[activeAgent], { from: 'agent', text: 'Recibí tu mensaje. El servidor local aún no está disponible, pero lo conectaré cuando esté activo.', time: 'ahora' }] }))
     }
   }
@@ -90,7 +97,7 @@ function App({ onLogout }: { onLogout: () => void }) {
     <Topbar section={section} pendingCount={pendingCount} setSection={setSection} setActiveAgent={setActiveAgent} onAddAgent={() => setAddAgentOpen(true)} onLogout={onLogout} />
     <main className="workspace">
       <OfficeStage activeAgent={activeAgent} pending={pending} pendingCount={pendingCount} setActiveAgent={setActiveAgent} />
-      {section === 'agents' ? <AgentsPanel setActiveAgent={setActiveAgent} close={() => setSection('office')} /> : section === 'requests' ? <RequestsPanel pending={pending} pendingCount={pendingCount} setActiveAgent={setActiveAgent} close={() => setSection('office')} /> : section === 'settings' ? <SettingsPanel onLogout={onLogout} /> : chatMinimized ? <ChatDock agent={agent} pending={pending[activeAgent]} restore={() => setChatMinimized(false)} /> : <ChatPanel agent={agent} messages={messages[activeAgent] as Message[]} pending={pending[activeAgent]} apiReady={apiReady} draft={draft} setDraft={setDraft} sendMessage={sendMessage} minimize={() => setChatMinimized(true)} togglePending={() => setPending((current) => ({ ...current, [activeAgent]: !current[activeAgent] }))} />}
+      {section === 'agents' ? <AgentsPanel setActiveAgent={setActiveAgent} close={() => setSection('office')} /> : section === 'requests' ? <RequestsPanel pending={pending} pendingCount={pendingCount} setActiveAgent={setActiveAgent} close={() => setSection('office')} /> : section === 'settings' ? <SettingsPanel onLogout={onLogout} /> : chatMinimized ? <ChatDock agent={agent} pending={pending[activeAgent]} restore={() => setChatMinimized(false)} /> : <ChatPanel agent={agent} messages={messages[activeAgent] as Message[]} pending={pending[activeAgent]} processing={processing[activeAgent]} apiReady={apiReady} draft={draft} setDraft={setDraft} sendMessage={sendMessage} minimize={() => setChatMinimized(true)} togglePending={() => setPending((current) => ({ ...current, [activeAgent]: !current[activeAgent] }))} />}
     </main>
     {addAgentOpen && <AddAgentPanel close={() => setAddAgentOpen(false)} />}
   </div>

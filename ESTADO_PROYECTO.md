@@ -23,6 +23,23 @@ Se implementó la primera entrega definida en `estructura_agentes_synapse_luciab
 
 La ejecución autónoma de varios modelos, JEV real, conectores externos y aprobación visual de acciones continúan pendientes. Los nuevos agentes usan temporalmente el logo de Dmente como avatar y no aparecen como personajes en el escenario hasta contar con imágenes propias.
 
+### Respuestas automáticas desde Hermes
+
+El backend ya incluye el cliente del API Server oficial de Hermes. Cuando `HERMES_API_URL` y `HERMES_API_KEY` están configuradas, cada mensaje crea la solicitud y activa una ejecución de LuciaBot en segundo plano. La interfaz muestra `LuciaBot está trabajando` y el polling carga la respuesta en el mismo hilo cuando termina.
+
+También se corrigió la asociación de conversación: el agente asignado puede ser Técnico, PMO, Marketing u otro, pero el mensaje y la respuesta permanecen en el chat donde Diego inició el caso. Esto permite que LuciaBot coordine sin perder el hilo visual.
+
+Estado verificado localmente:
+
+- servidor TypeScript: correcto;
+- compilación de producción: correcta;
+- solicitud encolada: confirmada;
+- llamada a API Hermes simulada: confirmada;
+- respuesta final persistida como `direction: agent`: confirmada;
+- API Server real de la VPS: configuración pendiente en Hermes y Coolify.
+
+Guía de activación: `CONFIGURAR_HERMES_API_SERVER.md`.
+
 La dirección visual se basa en el kit de marca de Dmente Digital y utiliza una oficina futurista ambientada en una nave espacial.
 
 Todavía no existen conexiones reales con Calendar, WhatsApp, correo, notas, JEV ni otros servicios externos.
@@ -92,6 +109,7 @@ No hay framework CSS. Los estilos se encuentran en `src/styles.css`.
 | `.dockerignore` | Archivos excluidos del contexto de construcción Docker. |
 | `server/orchestrator.ts` | Enrutamiento determinista inicial de LuciaBot. |
 | `server/mcp.ts` | Endpoint MCP remoto y herramientas de Synapse para Hermes. |
+| `server/hermes.ts` | Cliente del API Server de Hermes para respuestas automáticas. |
 | `server/types.ts` | Tipos de dominio del backend. |
 | `tsconfig.server.json` | Configuración TypeScript del backend. |
 | `package.json` | Dependencias y comandos del proyecto. |
