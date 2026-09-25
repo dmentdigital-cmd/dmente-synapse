@@ -323,7 +323,7 @@ El repositorio de producción está publicado en:
 Estado Git verificado:
 
 - rama publicada: `main`;
-- último commit publicado: `8c5f124 docs: record Hermes gateway integration status`;
+- último commit funcional publicado: `7970e0e feat: add low-cost Synapse agent catalog`;
 - cambios de la nueva imagen, el MCP y el estado publicados en `main`;
 - no se incluyeron `node_modules`, `dist`, `data/`, archivos `.env` ni `.claude/` en el repositorio.
 
