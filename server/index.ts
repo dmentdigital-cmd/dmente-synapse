@@ -105,7 +105,7 @@ const server = createServer(async (req, res) => {
       const message = text(input.text)
       if (!message) return send(res, 400, { error: 'text es obligatorio' })
       const decision = routeRequest(message)
-      const request = createRequest({ agentId: decision.agentId, domain: decision.domain, title: message.slice(0, 120), riskLevel: decision.riskLevel, requiresApproval: decision.requiresApproval })
+      const request = createRequest({ agentId: decision.agentId, domain: decision.domain, title: message.slice(0, 120), projectId: decision.projectId, priority: decision.priority, riskLevel: decision.riskLevel, requiresApproval: decision.requiresApproval, nextAction: decision.nextAction })
       addMessage({ requestId: request.id, agentId: decision.agentId, direction: 'user', text: message })
       const reply = buildReply(decision, message)
       addMessage({ requestId: request.id, agentId: decision.agentId, direction: 'agent', text: reply })

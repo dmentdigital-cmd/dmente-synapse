@@ -9,7 +9,7 @@ export function OfficeStage({ activeAgent, pending, pendingCount, setActiveAgent
   return <section className="office-stage" aria-label="Oficina de Dmente Synapse">
     <img className="office-background" src="/assets/oficina-futurista.png" alt="Oficina futurista de Dmente Synapse" />
     <div className="office-emblem"><img src="/assets/logo-dmente.png" alt="Dmente Digital" /><span>CENTRO DE OPERACIONES SYNAPSE</span></div>
-    {(Object.entries(agents) as [AgentId, typeof agents[AgentId]][]).map(([id, item]) => <button key={id} className={`agent-station station-${id} ${activeAgent === id ? 'selected' : ''}`} onClick={() => setActiveAgent(id)} aria-label={`Abrir chat de ${item.name}`}>
+    {(Object.entries(agents) as [AgentId, typeof agents[AgentId]][]).filter(([, item]) => item.visibleInOffice !== false).map(([id, item]) => <button key={id} className={`agent-station station-${id} ${activeAgent === id ? 'selected' : ''}`} onClick={() => setActiveAgent(id)} aria-label={`Abrir chat de ${item.name}`}>
       <img className="agent-sprite" src={pending[id] ? item.attention : item.normal} alt={item.name} />
       <span className="agent-platform" style={{ '--agent-color': item.color } as CSSProperties} />
       <span className="station-name"><img src="/assets/logo-dmente.png" alt="" /><span><strong>{item.name}</strong><small>{item.role}</small></span></span>

@@ -9,6 +9,20 @@
 
 Dmente Synapse es una aplicación web local que representa una oficina de agentes de inteligencia artificial de Dmente Digital. La interfaz permite seleccionar agentes, abrir conversaciones, enviar mensajes y consultar solicitudes. El primer backend local ya registra mensajes, solicitudes y compromisos en SQLite y aplica un enrutamiento determinista inicial para LuciaBot.
 
+### Actualización: catálogo operativo de bajo consumo
+
+Se implementó la primera entrega definida en `estructura_agentes_synapse_luciabot_2026-09-24.md`:
+
+- catálogo de 16 agentes con dominio, función, capacidades, límites y proyectos;
+- panel navegable de Agentes, separado de la oficina visual;
+- LuciaBot permanece como coordinadora y fallback;
+- router determinista que evita usar un LLM cuando una regla es suficiente;
+- campos de solicitud `projectId`, `priority` y `nextAction`, además de dominio, riesgo, estado y aprobación;
+- acciones externas bloqueadas: el sistema registra, clasifica y prepara respuestas, pero no envía correo, WhatsApp, eventos, campañas ni cambios de producción;
+- MCP remoto de Hermes y `synapse_reply_to_request` se conservan sin cambios incompatibles.
+
+La ejecución autónoma de varios modelos, JEV real, conectores externos y aprobación visual de acciones continúan pendientes. Los nuevos agentes usan temporalmente el logo de Dmente como avatar y no aparecen como personajes en el escenario hasta contar con imágenes propias.
+
 La dirección visual se basa en el kit de marca de Dmente Digital y utiliza una oficina futurista ambientada en una nave espacial.
 
 Todavía no existen conexiones reales con Calendar, WhatsApp, correo, notas, JEV ni otros servicios externos.
@@ -62,8 +76,10 @@ No hay framework CSS. Los estilos se encuentran en `src/styles.css`.
 |---|---|
 | `src/main.tsx` | Estado de la interfaz, agentes, mensajes, solicitudes y navegación. |
 | `src/agents.ts` | Catálogo visual de agentes y mensajes iniciales. |
+| `src/agentProfiles.ts` | Dominios, capacidades, límites y proyectos de los 16 agentes. |
 | `src/types.ts` | Tipos compartidos de la interfaz. |
 | `src/components/` | Barra superior, oficina, solicitudes y chat. |
+| `src/components/AgentsPanel.tsx` | Catálogo operativo navegable de agentes. |
 | `src/components/LoginScreen.tsx` | Pantalla de inicio de sesión cuando la autenticación está configurada. |
 | `src/styles.css` | Sistema visual, oficina, posiciones, paneles, responsive y animaciones. |
 | `index.html` | Entrada HTML de la aplicación. |
@@ -89,15 +105,26 @@ No hay framework CSS. Los estilos se encuentran en `src/styles.css`.
 
 ## 5. Agentes actuales
 
-| Agente | Función visible | Activo principal | Estado inicial |
-|---|---|---|---|
-| Secretaria | Coordina la operación | `secretaria-normal.png` | Solicitud pendiente |
-| Legal | Analiza riesgos y contratos | `legal-futurista-normal.png` | Analizando |
-| Marketing | Diseña crecimiento y campañas | `marketing-normal.png` | Optimizando |
-| Ventas | Gestiona oportunidades | `ventas-normal.png` | Solicitud pendiente |
-| LuciaBot | Gerente y orquestadora | `lucia-bot-gerente-v2.png` | Supervisando |
+| ID | Agente | Dominio |
+|---|---|---|
+| `gerente` | LuciaBot | Coordinación general |
+| `secretaria` | Secretaria | Agenda y administración |
+| `colegio-lucia` | Colegio Lucía | Familia y educación |
+| `salud-familiar` | Salud Familiar | Salud privada |
+| `finanzas-familiares` | Finanzas Familiares | Finanzas familiares |
+| `educacion-aprendizaje` | Educación | Aprendizaje aplicado |
+| `conocimiento-obsidian` | Conocimiento | Memoria y documentación |
+| `pmo` | PMO | Proyectos y prioridades |
+| `tecnico` | Técnico | Tecnología y desarrollo |
+| `ventas` | Ventas | Pipeline comercial |
+| `marketing` | Marketing | Crecimiento y campañas |
+| `legal` | Legal | Riesgos y cumplimiento |
+| `finanzas-dmente` | Finanzas Dmente | Finanzas de agencia |
+| `producto-vertice` | Producto Vértice | Producto CRM |
+| `producto-synapse` | Producto Synapse | Oficina operativa |
+| `whatsapp-conversaciones` | WhatsApp | Mensajería comercial |
 
-Los cinco personajes se muestran en estaciones independientes y pueden seleccionarse para cambiar el chat activo.
+Los cinco personajes que tienen activos gráficos propios continúan visibles en la oficina. Los 16 agentes están disponibles en el panel Agentes y en la API. Al seleccionar un agente del catálogo se abre su chat.
 
 La imagen de LuciaBot fue reemplazada por un personaje futurista de gerente generado a partir de la referencia de perfil proporcionada por Diego. El activo publicado para evitar caché del navegador es `public/assets/lucia-bot-gerente-v2.png`. Conserva el fondo transparente, la paleta teal/índigo/magenta y el estilo visual de la oficina espacial. El logo de Dmente Digital no se reemplazó; continúa funcionando como identidad de la aplicación y de la oficina.
 
@@ -127,8 +154,11 @@ También existen los activos `escritorio-futurista.png` y `silla-futurista.png`,
 
 ## 7. Funcionalidades implementadas
 
-- Navegación visual entre Oficina y Solicitudes.
-- Selección de cinco agentes desde la oficina.
+- Navegación visual entre Oficina, Agentes, Solicitudes y Configuración.
+- Selección de cinco personajes desde la oficina y acceso a los 16 perfiles desde el catálogo.
+- Perfiles estructurados con dominio, capacidades, límites y proyectos.
+- Enrutamiento determinista de bajo consumo con fallback a LuciaBot solo cuando no hay una regla suficiente.
+- Solicitudes con proyecto, prioridad, riesgo, estado, aprobación y próxima acción.
 - Chat independiente en memoria para cada agente.
 - Envío local de mensajes mediante botón o tecla Enter.
 - Envío del chat a la API local y respuesta del enrutador de LuciaBot cuando el backend está activo.
@@ -312,7 +342,7 @@ https://TU-DOMINIO-DE-COOLIFY/mcp
 
 Estado de la integración MCP:
 
-- MCP propio de Synapse: endpoint `/mcp` implementado con JSON-RPC, autenticación Bearer y ocho herramientas;
+- MCP propio de Synapse: endpoint `/mcp` implementado con JSON-RPC, autenticación Bearer y nueve herramientas;
 - token `SYNAPSE_MCP_TOKEN`: configurado en Coolify y Hermes, sin registrarlo en este documento;
 - registro del endpoint remoto en Hermes: configurado como `synapse_remote` con `enabled: true`;
 - prueba directa del endpoint: `HTTP 200` para `initialize`;

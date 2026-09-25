@@ -1,5 +1,9 @@
-export type Domain = 'agency' | 'personal' | 'family' | 'health' | 'education' | 'church' | 'learning' | 'wellbeing'
-export type AgentId = 'secretaria' | 'legal' | 'marketing' | 'ventas' | 'gerente'
+export type Domain = 'agency' | 'personal' | 'family' | 'health' | 'education' | 'church' | 'learning' | 'wellbeing' | 'projects' | 'technology' | 'finance' | 'knowledge' | 'product' | 'messaging' | 'sales' | 'marketing' | 'legal'
+export type AgentId =
+  | 'gerente' | 'secretaria' | 'colegio-lucia' | 'salud-familiar'
+  | 'finanzas-familiares' | 'educacion-aprendizaje' | 'conocimiento-obsidian'
+  | 'pmo' | 'tecnico' | 'ventas' | 'marketing' | 'legal' | 'finanzas-dmente'
+  | 'producto-vertice' | 'producto-synapse' | 'whatsapp-conversaciones'
 export type RequestStatus = 'pending' | 'in_progress' | 'waiting_approval' | 'done' | 'cancelled'
 export type ProfileRole = 'owner' | 'assistant'
 
@@ -41,9 +45,12 @@ export type RequestRecord = {
   agentId: AgentId
   domain: Domain
   title: string
+  projectId: string | null
+  priority: 'low' | 'normal' | 'high' | 'urgent'
   status: RequestStatus
   riskLevel: 'low' | 'medium' | 'high'
   requiresApproval: boolean
+  nextAction: string
   createdAt: string
   updatedAt: string
 }
@@ -60,8 +67,11 @@ export type MessageRecord = {
 export type RouteDecision = {
   agentId: AgentId
   domain: Domain
-  urgency: 'low' | 'normal' | 'high' | 'critical'
+  projectId: string | null
+  priority: 'low' | 'normal' | 'high' | 'urgent'
   riskLevel: 'low' | 'medium' | 'high'
   requiresApproval: boolean
+  nextAction: string
+  llmNeeded: boolean
   reason: string
 }

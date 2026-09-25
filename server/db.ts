@@ -46,9 +46,12 @@ db.exec(`
     agent_id TEXT NOT NULL,
     domain TEXT NOT NULL,
     title TEXT NOT NULL,
+    project_id TEXT,
+    priority TEXT NOT NULL DEFAULT 'normal',
     status TEXT NOT NULL,
     risk_level TEXT NOT NULL,
     requires_approval INTEGER NOT NULL,
+    next_action TEXT NOT NULL DEFAULT 'Revisar solicitud',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
@@ -70,20 +73,36 @@ db.exec(`
   );
 `)
 
+const requestColumns = new Set((db.prepare('PRAGMA table_info(requests)').all() as { name: string }[]).map((column) => column.name))
+if (!requestColumns.has('project_id')) db.exec('ALTER TABLE requests ADD COLUMN project_id TEXT')
+if (!requestColumns.has('priority')) db.exec("ALTER TABLE requests ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal'")
+if (!requestColumns.has('next_action')) db.exec("ALTER TABLE requests ADD COLUMN next_action TEXT NOT NULL DEFAULT 'Revisar solicitud'")
+
 const seedAgents: Agent[] = [
-  { id: 'secretaria', name: 'Secretaria', role: 'Coordina la operación', domain: 'personal' },
-  { id: 'legal', name: 'Legal', role: 'Analiza riesgos y contratos', domain: 'agency' },
-  { id: 'marketing', name: 'Marketing', role: 'Diseña crecimiento y campañas', domain: 'agency' },
-  { id: 'ventas', name: 'Ventas', role: 'Gestiona oportunidades', domain: 'agency' },
   { id: 'gerente', name: 'LuciaBot', role: 'Gerente y orquestadora', domain: 'personal' },
+  { id: 'secretaria', name: 'Secretaria', role: 'Agenda y administración', domain: 'personal' },
+  { id: 'colegio-lucia', name: 'Colegio Lucía', role: 'Educación y eventos escolares', domain: 'education' },
+  { id: 'salud-familiar', name: 'Salud Familiar', role: 'Citas y seguimiento privado', domain: 'health' },
+  { id: 'finanzas-familiares', name: 'Finanzas Familiares', role: 'Pagos y presupuesto familiar', domain: 'finance' },
+  { id: 'educacion-aprendizaje', name: 'Educación y Aprendizaje', role: 'Aprendizaje aplicado', domain: 'learning' },
+  { id: 'conocimiento-obsidian', name: 'Conocimiento', role: 'Memoria y documentación', domain: 'knowledge' },
+  { id: 'pmo', name: 'PMO', role: 'Proyectos y prioridades', domain: 'projects' },
+  { id: 'tecnico', name: 'Técnico', role: 'Código, integraciones y QA', domain: 'technology' },
+  { id: 'ventas', name: 'Ventas', role: 'Pipeline y oportunidades', domain: 'sales' },
+  { id: 'marketing', name: 'Marketing', role: 'Crecimiento y campañas', domain: 'marketing' },
+  { id: 'legal', name: 'Legal', role: 'Riesgos y cumplimiento', domain: 'legal' },
+  { id: 'finanzas-dmente', name: 'Finanzas Dmente', role: 'Cobros y rentabilidad', domain: 'finance' },
+  { id: 'producto-vertice', name: 'Producto Vértice', role: 'CRM y automatizaciones', domain: 'product' },
+  { id: 'producto-synapse', name: 'Producto Synapse', role: 'Oficina, agentes y MCP', domain: 'product' },
+  { id: 'whatsapp-conversaciones', name: 'WhatsApp', role: 'Conversaciones y prospectos', domain: 'messaging' },
 ]
 
-const seed = db.prepare('INSERT OR IGNORE INTO agents (id, name, role, domain) VALUES (?, ?, ?, ?)')
+const seed = db.prepare('INSERT INTO agents (id, name, role, domain) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, role = excluded.role, domain = excluded.domain')
 for (const agent of seedAgents) seed.run(agent.id, agent.name, agent.role, agent.domain)
 
 const localProfile: Profile = { id: 'diego-local', name: 'Diego', role: 'owner' }
 db.prepare('INSERT OR IGNORE INTO profiles (id, name, role) VALUES (?, ?, ?)').run(localProfile.id, localProfile.name, localProfile.role)
-const domains: Domain[] = ['agency', 'personal', 'family', 'health', 'education', 'church', 'learning', 'wellbeing']
+const domains: Domain[] = ['agency', 'personal', 'family', 'health', 'education', 'church', 'learning', 'wellbeing', 'projects', 'technology', 'finance', 'knowledge', 'product', 'messaging', 'sales', 'marketing', 'legal']
 const permissionSeed = db.prepare('INSERT OR IGNORE INTO profile_permissions (profile_id, domain, can_read, can_write, requires_approval) VALUES (?, ?, ?, ?, ?)')
 for (const domain of domains) permissionSeed.run(localProfile.id, domain, 1, 1, 0)
 
@@ -121,11 +140,11 @@ export function listCommitments(domain?: Domain): Commitment[] {
   }))
 }
 
-export function createRequest(input: { agentId: AgentId; domain: Domain; title: string; riskLevel: RequestRecord['riskLevel']; requiresApproval: boolean }): RequestRecord {
+export function createRequest(input: { agentId: AgentId; domain: Domain; title: string; projectId?: string | null; priority?: RequestRecord['priority']; riskLevel: RequestRecord['riskLevel']; requiresApproval: boolean; nextAction?: string }): RequestRecord {
   const now = new Date().toISOString()
-  const request: RequestRecord = { id: randomUUID(), agentId: input.agentId, domain: input.domain, title: input.title, status: input.requiresApproval ? 'waiting_approval' : 'in_progress', riskLevel: input.riskLevel, requiresApproval: input.requiresApproval, createdAt: now, updatedAt: now }
-  db.prepare('INSERT INTO requests (id, agent_id, domain, title, status, risk_level, requires_approval, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(request.id, request.agentId, request.domain, request.title, request.status, request.riskLevel, request.requiresApproval ? 1 : 0, now, now)
+  const request: RequestRecord = { id: randomUUID(), agentId: input.agentId, domain: input.domain, title: input.title, projectId: input.projectId ?? null, priority: input.priority ?? 'normal', status: input.requiresApproval ? 'waiting_approval' : 'in_progress', riskLevel: input.riskLevel, requiresApproval: input.requiresApproval, nextAction: input.nextAction ?? 'Revisar solicitud', createdAt: now, updatedAt: now }
+  db.prepare('INSERT INTO requests (id, agent_id, domain, title, project_id, priority, status, risk_level, requires_approval, next_action, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(request.id, request.agentId, request.domain, request.title, request.projectId, request.priority, request.status, request.riskLevel, request.requiresApproval ? 1 : 0, request.nextAction, now, now)
   return request
 }
 
@@ -138,12 +157,12 @@ export function updateRequestStatus(id: string, status: RequestStatus): RequestR
 export function getRequest(id: string): RequestRecord | null {
   const row = db.prepare('SELECT * FROM requests WHERE id = ?').get(id) as Record<string, unknown> | undefined
   if (!row) return null
-  return { id: String(row.id), agentId: row.agent_id as AgentId, domain: row.domain as Domain, title: String(row.title), status: row.status as RequestStatus, riskLevel: row.risk_level as RequestRecord['riskLevel'], requiresApproval: Boolean(row.requires_approval), createdAt: String(row.created_at), updatedAt: String(row.updated_at) }
+  return { id: String(row.id), agentId: row.agent_id as AgentId, domain: row.domain as Domain, title: String(row.title), projectId: row.project_id ? String(row.project_id) : null, priority: (row.priority ?? 'normal') as RequestRecord['priority'], status: row.status as RequestStatus, riskLevel: row.risk_level as RequestRecord['riskLevel'], requiresApproval: Boolean(row.requires_approval), nextAction: String(row.next_action ?? 'Revisar solicitud'), createdAt: String(row.created_at), updatedAt: String(row.updated_at) }
 }
 
 export function listRequests(): RequestRecord[] {
   const rows = db.prepare('SELECT * FROM requests ORDER BY created_at DESC').all() as Record<string, unknown>[]
-  return rows.map((row) => ({ id: String(row.id), agentId: row.agent_id as AgentId, domain: row.domain as Domain, title: String(row.title), status: row.status as RequestStatus, riskLevel: row.risk_level as RequestRecord['riskLevel'], requiresApproval: Boolean(row.requires_approval), createdAt: String(row.created_at), updatedAt: String(row.updated_at) }))
+  return rows.map((row) => ({ id: String(row.id), agentId: row.agent_id as AgentId, domain: row.domain as Domain, title: String(row.title), projectId: row.project_id ? String(row.project_id) : null, priority: (row.priority ?? 'normal') as RequestRecord['priority'], status: row.status as RequestStatus, riskLevel: row.risk_level as RequestRecord['riskLevel'], requiresApproval: Boolean(row.requires_approval), nextAction: String(row.next_action ?? 'Revisar solicitud'), createdAt: String(row.created_at), updatedAt: String(row.updated_at) }))
 }
 
 export function addMessage(input: { requestId?: string; agentId: AgentId; direction: 'user' | 'agent'; text: string }): MessageRecord {

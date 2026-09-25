@@ -13,7 +13,7 @@ const toolDefinitions = [
   { name: 'synapse_list_requests', description: 'Lista las solicitudes registradas y su estado.', inputSchema: { type: 'object', properties: {} } },
   { name: 'synapse_list_messages', description: 'Lista mensajes de un agente.', inputSchema: { type: 'object', properties: { agentId: { type: 'string' } }, required: ['agentId'] } },
   { name: 'synapse_reply_to_request', description: 'Permite a LuciaBot/Hermes responder dentro de una solicitud existente de Dmente Synapse. Guarda la respuesta como mensaje interno y no ejecuta acciones externas.', inputSchema: { type: 'object', properties: { requestId: { type: 'string', description: 'ID de la solicitud existente en Synapse.' }, agentId: { type: 'string', description: 'ID del agente que responde.' }, text: { type: 'string', description: 'Respuesta interna para mostrar en el chat visual.' } }, required: ['requestId', 'agentId', 'text'] } },
-  { name: 'synapse_create_request', description: 'Registra una solicitud para seguimiento humano. Las acciones externas no se ejecutan automáticamente.', inputSchema: { type: 'object', properties: { title: { type: 'string' }, agentId: { type: 'string' }, domain: { type: 'string' } }, required: ['title', 'agentId', 'domain'] } },
+  { name: 'synapse_create_request', description: 'Registra una solicitud interna con agente, dominio, proyecto, prioridad y siguiente acción. No ejecuta acciones externas.', inputSchema: { type: 'object', properties: { title: { type: 'string' }, agentId: { type: 'string' }, domain: { type: 'string' }, projectId: { type: 'string' }, priority: { type: 'string', enum: ['low', 'normal', 'high', 'urgent'] }, riskLevel: { type: 'string', enum: ['low', 'medium', 'high'] }, requiresApproval: { type: 'boolean' }, nextAction: { type: 'string' } }, required: ['title', 'agentId', 'domain'] } },
   { name: 'synapse_add_message', description: 'Agrega un mensaje de Hermes o LuciaBot a la conversación.', inputSchema: { type: 'object', properties: { agentId: { type: 'string' }, text: { type: 'string' }, requestId: { type: 'string' } }, required: ['agentId', 'text'] } },
   { name: 'synapse_list_commitments', description: 'Lista compromisos personales, familiares y de agencia.', inputSchema: { type: 'object', properties: { domain: { type: 'string' } } } },
   { name: 'synapse_create_commitment', description: 'Registra un compromiso. No envía mensajes ni crea eventos externos.', inputSchema: { type: 'object', properties: { title: { type: 'string' }, domain: { type: 'string' }, people: { type: 'array', items: { type: 'string' } }, startsAt: { type: 'string' }, dueAt: { type: 'string' } }, required: ['title', 'domain'] } },
@@ -62,7 +62,9 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     const agentId = text(args.agentId) as AgentId
     const domain = text(args.domain) as Domain
     if (!title || !agentId || !domain) throw new Error('title, agentId y domain son obligatorios')
-    const request = createRequest({ agentId, domain, title, riskLevel: 'medium', requiresApproval: true })
+    const priority = text(args.priority) as 'low' | 'normal' | 'high' | 'urgent'
+    const riskLevel = text(args.riskLevel) as 'low' | 'medium' | 'high'
+    const request = createRequest({ agentId, domain, title, projectId: text(args.projectId) || null, priority: priority || 'normal', riskLevel: riskLevel || 'medium', requiresApproval: args.requiresApproval !== false, nextAction: text(args.nextAction) || 'Revisar solicitud' })
     addAudit({ requestId: request.id, action: 'mcp_request_created', summary: request.title, source: 'hermes-mcp' })
     return { request, requiresApproval: true }
   }

@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { agents, initialMessages } from './agents'
 import { ChatDock, ChatPanel } from './components/ChatPanel'
 import { AddAgentPanel } from './components/AddAgentPanel'
+import { AgentsPanel } from './components/AgentsPanel'
 import { LoginScreen } from './components/LoginScreen'
 import { OfficeStage } from './components/OfficeStage'
 import { RequestsPanel } from './components/RequestsPanel'
@@ -34,7 +35,7 @@ function Root() {
 function App({ onLogout }: { onLogout: () => void }) {
   const [activeAgent, setActiveAgent] = useState<AgentId>('secretaria')
   const [messages, setMessages] = useState(initialMessages)
-  const [pending, setPending] = useState<Record<AgentId, boolean>>({ secretaria: true, legal: false, marketing: false, ventas: true, gerente: false })
+  const [pending, setPending] = useState<Record<AgentId, boolean>>(() => Object.keys(agents).reduce((state, id) => ({ ...state, [id]: false }), {} as Record<AgentId, boolean>))
   const [draft, setDraft] = useState('')
   const [section, setSection] = useState<Section>('office')
   const [chatMinimized, setChatMinimized] = useState(false)
@@ -89,7 +90,7 @@ function App({ onLogout }: { onLogout: () => void }) {
     <Topbar section={section} pendingCount={pendingCount} setSection={setSection} setActiveAgent={setActiveAgent} onAddAgent={() => setAddAgentOpen(true)} onLogout={onLogout} />
     <main className="workspace">
       <OfficeStage activeAgent={activeAgent} pending={pending} pendingCount={pendingCount} setActiveAgent={setActiveAgent} />
-      {section === 'requests' ? <RequestsPanel pending={pending} pendingCount={pendingCount} setActiveAgent={setActiveAgent} close={() => setSection('office')} /> : section === 'settings' ? <SettingsPanel onLogout={onLogout} /> : chatMinimized ? <ChatDock agent={agent} pending={pending[activeAgent]} restore={() => setChatMinimized(false)} /> : <ChatPanel agent={agent} messages={messages[activeAgent] as Message[]} pending={pending[activeAgent]} apiReady={apiReady} draft={draft} setDraft={setDraft} sendMessage={sendMessage} minimize={() => setChatMinimized(true)} togglePending={() => setPending((current) => ({ ...current, [activeAgent]: !current[activeAgent] }))} />}
+      {section === 'agents' ? <AgentsPanel setActiveAgent={setActiveAgent} close={() => setSection('office')} /> : section === 'requests' ? <RequestsPanel pending={pending} pendingCount={pendingCount} setActiveAgent={setActiveAgent} close={() => setSection('office')} /> : section === 'settings' ? <SettingsPanel onLogout={onLogout} /> : chatMinimized ? <ChatDock agent={agent} pending={pending[activeAgent]} restore={() => setChatMinimized(false)} /> : <ChatPanel agent={agent} messages={messages[activeAgent] as Message[]} pending={pending[activeAgent]} apiReady={apiReady} draft={draft} setDraft={setDraft} sendMessage={sendMessage} minimize={() => setChatMinimized(true)} togglePending={() => setPending((current) => ({ ...current, [activeAgent]: !current[activeAgent] }))} />}
     </main>
     {addAgentOpen && <AddAgentPanel close={() => setAddAgentOpen(false)} />}
   </div>
