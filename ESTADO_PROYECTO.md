@@ -1,7 +1,7 @@
 # Estado del proyecto: Dmente Synapse
 
 **Versión documentada:** 0.1.0  
-**Fecha de actualización:** 2026-09-24  
+**Fecha de actualización:** 2026-09-25
 **Zona horaria:** America/Bogota  
 **Estado general:** prototipo desplegado en VPS con backend operativo, autenticación y conexión MCP verificada con Hermes
 
@@ -580,4 +580,5 @@ El proyecto puede considerarse un **prototipo web desplegado con backend vertica
 - El panel de Solicitudes muestra agente, prioridad, siguiente acción y fuentes asociadas.
 - LuciaBot recibió una regla compacta para buscar selectivamente en `/home/diego/Obsidian`, leer solo notas relevantes, citar rutas y evitar copiar documentos largos a memoria.
 - No se creó una instancia PMA/Rackell porque todavía requiere una decisión explícita sobre separación de datos y permisos.
-- Pendiente de infraestructura: comprobar después del despliegue que el contenedor de Synapse alcanza Hermes en `10.0.1.1:8642`. El endpoint `/api/health` permite hacerlo sin ejecutar comandos en el VPS.
+- Verificado en producción: `/api/health` informa `hermesAutomaticReplies: true`, `hermesReachable: true` y `hermesLastError: null`.
+- Prueba extremo a extremo verificada el 2026-09-25: una solicitud creada desde la API visual recibió la respuesta de LuciaBot dentro del mismo hilo en aproximadamente 22 segundos. La solicitud técnica se cerró después de la comprobación.
