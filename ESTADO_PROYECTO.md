@@ -1,9 +1,9 @@
 # Estado del proyecto: Dmente Synapse
 
-**Versión documentada:** 0.1.0  
+**Versión documentada:** 0.2.0
 **Fecha de actualización:** 2026-09-25
 **Zona horaria:** America/Bogota  
-**Estado general:** prototipo desplegado en VPS con backend operativo, autenticación y conexión MCP verificada con Hermes
+**Estado general:** aplicación web operativa con autenticación, LuciaBot conectada a Hermes, referencias Obsidian y versión móvil PWA preparada
 
 ## 1. Resumen
 
@@ -570,6 +570,7 @@ Ampere Core es infraestructura temporal de construcción y no forma parte del pr
 ## 20. Criterio del estado actual
 
 El proyecto puede considerarse un **prototipo web desplegado con backend vertical slice y una integración MCP operativa con Hermes**. La interfaz pública, el inicio de sesión, la persistencia básica y la conexión Hermes → Synapse están verificadas. No debe presentarse todavía como un sistema multiagente autónomo ni como una integración operativa con Calendar, correo o WhatsApp.
+
 # Actualización 2026-09-25: Synapse, Hermes y Obsidian
 
 - Synapse puede llamar automáticamente a LuciaBot mediante Hermes API Server.
@@ -591,3 +592,15 @@ El proyecto puede considerarse un **prototipo web desplegado con backend vertica
 - El logo suministrado de Dmente Synapse se usa como identidad del producto en acceso, cabecera, oficina e icono móvil.
 - La firma `Desarrollado por Dmente Digital` incluye el logo corporativo y el enlace `https://www.dmentedigital.co`.
 - La caché excluye `/api/` y `/mcp`; los datos operativos continúan consultándose al servidor.
+- El símbolo móvil fue adaptado a formato cuadrado conservando la `D`, la red neuronal y la paleta azul/cian del logo entregado.
+- La interfaz móvil fue revisada localmente a `390 × 844` píxeles; la barra inferior, el chat y la oficina permanecen accesibles.
+- `npm run build`, `npm run server:check`, la sintaxis del service worker, el manifiesto y las dimensiones de los iconos fueron verificados.
+
+## Publicación actual
+
+- Commit funcional de Synapse + Hermes + Obsidian: `d929eeb`.
+- Verificación real de respuesta Hermes en producción: `3523746`.
+- Commit de aplicación móvil e identidad: `347bfdb`.
+- Los tres commits están publicados en la rama `main` de GitHub.
+- Última comprobación antes de este registro: Coolify todavía servía la versión anterior porque `/manifest.webmanifest` respondía como HTML. Falta ejecutar o terminar el redeploy del commit `347bfdb` y comprobar el manifiesto en producción.
+- Guía de instalación: `INSTALAR_EN_CELULAR.md`.
