@@ -582,3 +582,12 @@ El proyecto puede considerarse un **prototipo web desplegado con backend vertica
 - No se creó una instancia PMA/Rackell porque todavía requiere una decisión explícita sobre separación de datos y permisos.
 - Verificado en producción: `/api/health` informa `hermesAutomaticReplies: true`, `hermesReachable: true` y `hermesLastError: null`.
 - Prueba extremo a extremo verificada el 2026-09-25: una solicitud creada desde la API visual recibió la respuesta de LuciaBot dentro del mismo hilo en aproximadamente 22 segundos. La solicitud técnica se cerró después de la comprobación.
+
+## Aplicación móvil e identidad visual
+
+- Synapse incluye manifiesto PWA, service worker e iconos de 192, 512 y 180 píxeles.
+- Se puede instalar desde Android o añadir a la pantalla de inicio desde Safari en iPhone/iPad.
+- La navegación móvil se mantiene visible en una barra inferior.
+- El logo suministrado de Dmente Synapse se usa como identidad del producto en acceso, cabecera, oficina e icono móvil.
+- La firma `Desarrollado por Dmente Digital` incluye el logo corporativo y el enlace `https://www.dmentedigital.co`.
+- La caché excluye `/api/` y `/mcp`; los datos operativos continúan consultándose al servidor.

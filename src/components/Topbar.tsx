@@ -5,7 +5,7 @@ type Props = { section: Section; pendingCount: number; setSection: (section: Sec
 
 export function Topbar({ section, pendingCount, setSection, setActiveAgent, onAddAgent, onLogout }: Props) {
   return <header className="topbar">
-    <div className="brand-lockup"><img className="brand-logo" src="/assets/logo-dmente.png" alt="Dmente Digital" /><span>Dmente <b>Synapse</b></span></div>
+    <div className="brand-lockup"><img className="brand-logo" src="/assets/dmente-synapse-icon.png" alt="Dmente Synapse" /><span>Dmente <b>Synapse</b></span></div>
     <nav className="main-nav" aria-label="Navegación principal">
       <button className={section === 'office' ? 'nav-item active' : 'nav-item'} onClick={() => setSection('office')}><Home size={17} /> Oficina</button>
       <button className={section === 'agents' ? 'nav-item active' : 'nav-item'} onClick={() => setSection('agents')}><Sparkles size={17} /> Agentes</button>
