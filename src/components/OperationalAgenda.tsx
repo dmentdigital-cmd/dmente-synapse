@@ -12,8 +12,20 @@ const statusLabels: Record<AgendaItem['status'], string> = { pending: 'Pendiente
 const priorityLabels = { urgent: 'Urgente', high: 'Alta', normal: 'Normal', low: 'Baja' } as const
 const domainLabels: Record<string, string> = { family: 'Familia', health: 'Salud familiar', agency: 'Agencia', sales: 'Ventas', marketing: 'Marketing', technology: 'Técnico / producto', learning: 'Aprendizaje', projects: 'Proyectos', personal: 'Personal', education: 'Educación', church: 'Iglesia', wellbeing: 'Bienestar', finance: 'Finanzas', knowledge: 'Conocimiento', product: 'Producto', messaging: 'Mensajería', legal: 'Legal' }
 const kanbanColumns: AgendaItem['status'][] = ['pending', 'in_progress', 'waiting_approval', 'blocked', 'done']
+const fallbackAgent = { name: 'Sin asignar', role: 'Responsable por revisar', normal: '/assets/logo-dmente.png', attention: '/assets/logo-dmente.png', status: 'Por revisar', color: '#94a3b8', visibleInOffice: false }
+
+function agentView(agentId: string) {
+  return agents[agentId as AgentId] ?? fallbackAgent
+}
+
+function validDate(value: string | Date | null): Date | null {
+  if (!value) return null
+  const date = value instanceof Date ? value : new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date
+}
 
 function dateKey(date: Date): string {
+  if (Number.isNaN(date.getTime())) return ''
   const values = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date)
   const part = (type: string) => values.find((value) => value.type === type)?.value ?? ''
   return `${part('year')}-${part('month')}-${part('day')}`
@@ -27,11 +39,15 @@ function shiftDay(key: string, amount: number): string {
 
 function formatDate(value: string | null): string {
   if (!value) return 'Sin fecha'
-  return new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }).format(new Date(value))
+  const date = validDate(value)
+  if (!date) return 'Fecha por revisar'
+  return new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }).format(date)
 }
 
 function formatTime(value: string): string {
-  return new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', hour: 'numeric', minute: '2-digit' }).format(new Date(value))
+  const date = validDate(value)
+  if (!date) return 'Hora por revisar'
+  return new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', hour: 'numeric', minute: '2-digit' }).format(date)
 }
 
 function formatSchedule(item: AgendaItem): string {
@@ -44,12 +60,14 @@ function formatSchedule(item: AgendaItem): string {
 
 function itemDay(item: AgendaItem): string | null {
   const value = item.startsAt ?? item.dueAt
-  return value ? dateKey(new Date(value)) : null
+  const date = validDate(value)
+  return date ? dateKey(date) : null
 }
 
 function deadlineDay(item: AgendaItem): string | null {
   const value = item.dueAt ?? item.startsAt
-  return value ? dateKey(new Date(value)) : null
+  const date = validDate(value)
+  return date ? dateKey(date) : null
 }
 
 function kanbanStatus(item: AgendaItem): AgendaItem['status'] {
@@ -125,20 +143,20 @@ export function OperationalAgenda({ items, loadError, onCreate, onUpdateStatus, 
   }
 
   function renderCard(item: AgendaItem) {
-    const person = agents[item.agentId]
+    const person = agentView(item.agentId)
     const day = itemDay(item)
     const dueDay = deadlineDay(item)
     const overdue = Boolean(dueDay && dueDay < today && item.status !== 'done' && item.status !== 'cancelled')
     return <article className={`agenda-task priority-${item.priority} ${overdue ? 'is-overdue' : ''}`} key={item.id}>
       <div className="agenda-task-identity">
         <span className="agenda-agent-avatar" style={{ '--agent-color': person.color } as CSSProperties}><img src={person.normal} alt="" /></span>
-        <div className="agenda-task-heading"><strong>{item.title}</strong><div className="agenda-tags"><span className={`agenda-priority ${item.priority}`}>{priorityLabels[item.priority]}</span><span className={`agenda-domain domain-${item.domain}`}>{domainLabels[item.domain] ?? item.domain}</span>{item.requiresApproval && <span className={item.approvalConfirmed ? 'agenda-approval approved' : 'agenda-approval'}>{item.approvalConfirmed ? 'Aprobación registrada' : 'Requiere aprobación'}</span>}</div></div>
+        <div className="agenda-task-heading"><strong>{item.title}</strong><div className="agenda-tags"><span className={`agenda-priority ${item.priority}`}>{priorityLabels[item.priority] ?? item.priority}</span><span className={`agenda-domain domain-${item.domain}`}>{domainLabels[item.domain] ?? item.domain}</span>{item.requiresApproval && <span className={item.approvalConfirmed ? 'agenda-approval approved' : 'agenda-approval'}>{item.approvalConfirmed ? 'Aprobación registrada' : 'Requiere aprobación'}</span>}</div></div>
         <span className={`agenda-risk ${item.riskLevel}`} title={`Riesgo ${item.riskLevel}`}><i />Riesgo {item.riskLevel === 'low' ? 'bajo' : item.riskLevel === 'medium' ? 'medio' : 'alto'}</span>
       </div>
       <div className="agenda-task-meta"><span><CalendarClock size={14} />{formatSchedule(item)}</span><span><Sparkles size={13} />{person.name}</span>{item.projectId && <span className="agenda-project">{item.projectId}</span>}{overdue && <span className="agenda-overdue"><AlertTriangle size={13} />Atrasada</span>}</div>
       {item.nextAction && <p className="agenda-next-action"><b>Siguiente:</b> {item.nextAction}</p>}
       {item.sourcePath && <div className="agenda-source"><ExternalLink size={12} />{item.sourcePath.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? 'Referencia del proyecto'}</div>}
-      <div className="agenda-task-footer"><span className={`agenda-status ${item.status}`}><Circle size={8} fill="currentColor" />{statusLabels[item.status]}</span><div className="agenda-task-actions">
+      <div className="agenda-task-footer"><span className={`agenda-status ${item.status}`}><Circle size={8} fill="currentColor" />{statusLabels[item.status] ?? item.status}</span><div className="agenda-task-actions">
         {item.requiresApproval && !item.approvalConfirmed && <button className="agenda-approve" disabled={busyId === item.id} onClick={() => void runAction(item.id, () => onApprove(item.id))}><ShieldAlert size={14} />Aprobar</button>}
         <label className="agenda-status-control"><ArrowDownWideNarrow size={13} /><select aria-label={`Cambiar estado de ${item.title}`} value={item.status} disabled={busyId === item.id} onChange={(event) => void runAction(item.id, () => onUpdateStatus(item.id, event.target.value as AgendaItem['status']))}>
           {(['pending', 'in_progress', 'waiting_approval', 'blocked', 'done', 'cancelled'] as AgendaItem['status'][]).map((next) => <option key={next} value={next} disabled={next === 'done' && item.requiresApproval && !item.approvalConfirmed}>{statusLabels[next]}</option>)}
@@ -156,7 +174,7 @@ export function OperationalAgenda({ items, loadError, onCreate, onUpdateStatus, 
     <div className="agenda-filters"><span className="filters-label"><Filter size={14} />Filtrar</span>
       <select aria-label="Filtrar por dominio" value={domain} onChange={(event) => setDomain(event.target.value)}><option value="all">Todos los dominios</option>{domains.map((item) => <option key={item} value={item}>{domainLabels[item] ?? item}</option>)}</select>
       <select aria-label="Filtrar por proyecto" value={project} onChange={(event) => setProject(event.target.value)}><option value="all">Todos los proyectos</option>{projects.map((item) => <option key={item} value={item}>{item}</option>)}</select>
-      <select aria-label="Filtrar por agente" value={agent} onChange={(event) => setAgent(event.target.value)}><option value="all">Todos los agentes</option>{agentIds.map((id) => <option key={id} value={id}>{agents[id].name}</option>)}</select>
+      <select aria-label="Filtrar por agente" value={agent} onChange={(event) => setAgent(event.target.value)}><option value="all">Todos los agentes</option>{agentIds.map((id) => <option key={id} value={id}>{agentView(id).name}</option>)}</select>
       <select aria-label="Filtrar por prioridad" value={priority} onChange={(event) => setPriority(event.target.value)}><option value="all">Toda prioridad</option>{Object.entries(priorityLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
       <select aria-label="Filtrar por estado" value={status} onChange={(event) => setStatus(event.target.value)}><option value="active">Estados activos</option><option value="all">Todos los estados</option>{Object.entries(statusLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
     </div>
@@ -168,7 +186,7 @@ export function OperationalAgenda({ items, loadError, onCreate, onUpdateStatus, 
       })}</div> : view === 'calendar' ? <div className="agenda-calendar-week">{Array.from({ length: 7 }, (_, index) => shiftDay(today, index)).map((day) => {
         const dayItems = filteredItems.filter((item) => itemDay(item) === day)
         const local = new Date(`${day}T12:00:00-05:00`)
-        return <section className="calendar-day" key={day}><header><small>{new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', weekday: 'short' }).format(local)}</small><strong>{new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', day: 'numeric' }).format(local)}</strong></header>{dayItems.map((item) => <button className={`calendar-event priority-${item.priority}`} key={item.id} onClick={() => setView('week')}><time>{item.startsAt ? formatTime(item.startsAt) : 'Todo el día'}</time><strong>{item.title}</strong><small>{agents[item.agentId].name}</small></button>)}</section>
+        return <section className="calendar-day" key={day}><header><small>{new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', weekday: 'short' }).format(local)}</small><strong>{new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', day: 'numeric' }).format(local)}</strong></header>{dayItems.map((item) => <button className={`calendar-event priority-${item.priority}`} key={item.id} onClick={() => setView('week')}><time>{item.startsAt ? formatTime(item.startsAt) : 'Todo el día'}</time><strong>{item.title}</strong><small>{agentView(item.agentId).name}</small></button>)}</section>
       })}</div> : filteredItems.length ? <div className="agenda-list">{filteredItems.map((item) => renderCard(item))}</div> : <div className="agenda-empty"><span><CheckCheck size={23} /></span><strong>Agenda despejada</strong><p>No hay tareas en esta vista con los filtros actuales.</p><button onClick={() => { setView('week'); setDomain('all'); setProject('all'); setAgent('all'); setPriority('all'); setStatus('active'); setApprovalOnly(false) }}>Ver semana completa</button></div>}
     </div>
     <footer className="agenda-footer"><span><ShieldAlert size={13} />Las acciones externas siguen sujetas a aprobación registrada.</span><span><Clock3 size={13} />Hora Colombia</span></footer>

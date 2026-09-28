@@ -4,6 +4,7 @@ import { agents, initialMessages } from './agents'
 import { ChatDock, ChatPanel } from './components/ChatPanel'
 import { AddAgentPanel } from './components/AddAgentPanel'
 import { AgentsPanel } from './components/AgentsPanel'
+import { AgendaErrorBoundary } from './components/AgendaErrorBoundary'
 import { OperationalAgenda } from './components/OperationalAgenda'
 import { LoginScreen } from './components/LoginScreen'
 import { OfficeStage } from './components/OfficeStage'
@@ -161,7 +162,7 @@ function App({ onLogout }: { onLogout: () => void }) {
   return <div className="app-shell">
     <Topbar section={section} pendingCount={pendingCount} setSection={openSection} setActiveAgent={setActiveAgent} onAddAgent={() => setAddAgentOpen(true)} onLogout={onLogout} />
     <main className="workspace">
-      {section === 'agenda' ? <OperationalAgenda items={agendaItems} loadError={apiError} onCreate={createAgendaItem} onUpdateStatus={updateAgendaStatus} onApprove={approveAgendaItem} onClose={() => openSection('office')} /> : <>
+      {section === 'agenda' ? <AgendaErrorBoundary onClose={() => openSection('office')}><OperationalAgenda items={agendaItems} loadError={apiError} onCreate={createAgendaItem} onUpdateStatus={updateAgendaStatus} onApprove={approveAgendaItem} onClose={() => openSection('office')} /></AgendaErrorBoundary> : <>
         <OfficeStage activeAgent={activeAgent} pending={pending} processing={processing} pendingCount={pendingCount} agendaItems={agendaItems} setActiveAgent={setActiveAgent} />
         {section === 'agents' ? <AgentsPanel setActiveAgent={setActiveAgent} close={() => openSection('office')} /> : section === 'requests' ? <RequestsPanel requests={requests} setActiveAgent={setActiveAgent} close={() => openSection('office')} /> : section === 'settings' ? <SettingsPanel onLogout={onLogout} installed={installed} canInstall={Boolean(installPrompt)} onInstall={() => void installApp()} /> : chatMinimized ? <ChatDock agent={agent} pending={pending[activeAgent]} restore={() => setChatMinimized(false)} /> : <ChatPanel agent={agent} messages={messages[activeAgent] as Message[]} pending={pending[activeAgent]} processing={processing[activeAgent]} apiReady={apiReady} draft={draft} setDraft={setDraft} sendMessage={sendMessage} minimize={() => setChatMinimized(true)} togglePending={() => setPending((current) => ({ ...current, [activeAgent]: !current[activeAgent] }))} />}
       </>}
@@ -174,7 +175,7 @@ function App({ onLogout }: { onLogout: () => void }) {
 createRoot(document.getElementById('root')!).render(<StrictMode><Root /></StrictMode>)
 
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => { void navigator.serviceWorker.register('/sw.js?v=2').catch(() => undefined) })
+  window.addEventListener('load', () => { void navigator.serviceWorker.register('/sw.js?v=3').catch(() => undefined) })
 }
 
 function sectionFromHash(hash: string): Section {
