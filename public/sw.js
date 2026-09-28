@@ -1,4 +1,4 @@
-const CACHE_NAME = 'dmente-synapse-shell-v1'
+const CACHE_NAME = 'dmente-synapse-shell-v2'
 const SHELL = ['/', '/manifest.webmanifest', '/assets/dmente-synapse-icon.png', '/icons/icon-192.png', '/icons/icon-512.png']
 
 self.addEventListener('install', (event) => {

@@ -87,7 +87,9 @@ async function serveStatic(pathname: string, res: ServerResponse): Promise<void>
   }
   try {
     const file = await readFile(filePath)
-    res.writeHead(200, { 'Content-Type': contentType(filePath), 'Cache-Control': filePath.endsWith('index.html') ? 'no-cache' : 'public, max-age=31536000, immutable' })
+    const isEntryPoint = filePath.endsWith('index.html') || filePath.endsWith('sw.js')
+    const isHashedAsset = filePath.includes(`${path.sep}assets${path.sep}`)
+    res.writeHead(200, { 'Content-Type': contentType(filePath), 'Cache-Control': isEntryPoint ? 'no-cache' : isHashedAsset ? 'public, max-age=31536000, immutable' : 'public, max-age=3600' })
     res.end(file)
   } catch {
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })

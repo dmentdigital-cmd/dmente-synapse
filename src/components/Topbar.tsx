@@ -7,11 +7,11 @@ export function Topbar({ section, pendingCount, setSection, setActiveAgent, onAd
   return <header className="topbar">
     <div className="brand-lockup"><img className="brand-logo" src="/assets/dmente-synapse-icon.png" alt="Dmente Synapse" /><span>Dmente <b>Synapse</b></span></div>
     <nav className="main-nav" aria-label="Navegación principal">
-      <button className={section === 'office' ? 'nav-item active' : 'nav-item'} onClick={() => setSection('office')}><Home size={17} /> Oficina</button>
-      <button className={section === 'agents' ? 'nav-item active' : 'nav-item'} onClick={() => setSection('agents')}><Sparkles size={17} /> Agentes</button>
-      <button className={section === 'agenda' ? 'nav-item active' : 'nav-item'} onClick={() => setSection('agenda')}><CalendarDays size={17} /> Agenda</button>
-      <button className={section === 'requests' ? 'nav-item active' : 'nav-item'} onClick={() => setSection('requests')}><ClipboardList size={17} /> Solicitudes {pendingCount > 0 && <span className="nav-count">{pendingCount}</span>}</button>
-      <button className={section === 'settings' ? 'nav-item active' : 'nav-item'} onClick={() => setSection('settings')}><Settings size={17} /> Configuración</button>
+      <button type="button" className={section === 'office' ? 'nav-item active' : 'nav-item'} onClick={() => setSection('office')}><Home size={17} /> Oficina</button>
+      <button type="button" className={section === 'agents' ? 'nav-item active' : 'nav-item'} onClick={() => setSection('agents')}><Sparkles size={17} /> Agentes</button>
+      <button type="button" className={section === 'agenda' ? 'nav-item active' : 'nav-item'} onClick={() => setSection('agenda')}><CalendarDays size={17} /> Agenda</button>
+      <button type="button" className={section === 'requests' ? 'nav-item active' : 'nav-item'} onClick={() => setSection('requests')}><ClipboardList size={17} /> Solicitudes {pendingCount > 0 && <span className="nav-count">{pendingCount}</span>}</button>
+      <button type="button" className={section === 'settings' ? 'nav-item active' : 'nav-item'} onClick={() => setSection('settings')}><Settings size={17} /> Configuración</button>
     </nav>
     <div className="topbar-actions"><button className="add-agent" onClick={onAddAgent}><Plus size={17} /> Añadir agente</button><button className="logout-button" onClick={onLogout}><LogOut size={16} /> Salir</button></div>
   </header>

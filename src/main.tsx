@@ -42,7 +42,7 @@ function App({ onLogout }: { onLogout: () => void }) {
   const [requests, setRequests] = useState<ApiRequest[]>([])
   const [agendaItems, setAgendaItems] = useState<AgendaItem[]>([])
   const [draft, setDraft] = useState('')
-  const [section, setSection] = useState<Section>('office')
+  const [section, setSection] = useState<Section>(() => sectionFromHash(window.location.hash))
   const [chatMinimized, setChatMinimized] = useState(false)
   const [apiReady, setApiReady] = useState(false)
   const [apiError, setApiError] = useState('')
@@ -52,6 +52,19 @@ function App({ onLogout }: { onLogout: () => void }) {
   const agent = agents[activeAgent]
   const pendingCount = Object.values(pending).filter(Boolean).length
   const orderedAgents = useMemo(() => Object.entries(agents) as [AgentId, typeof agents[AgentId]][], [])
+
+  useEffect(() => {
+    const syncSection = () => setSection(sectionFromHash(window.location.hash))
+    window.addEventListener('hashchange', syncSection)
+    return () => window.removeEventListener('hashchange', syncSection)
+  }, [])
+
+  function openSection(nextSection: Section) {
+    setSection(nextSection)
+    const nextHash = nextSection === 'office' ? '' : `#${nextSection}`
+    if (window.location.hash !== nextHash) window.history.pushState(null, '', `${window.location.pathname}${window.location.search}${nextHash}`)
+    window.requestAnimationFrame(() => window.scrollTo(0, 0))
+  }
 
   useEffect(() => {
     const capturePrompt = (event: Event) => { event.preventDefault(); setInstallPrompt(event as BeforeInstallPromptEvent) }
@@ -146,11 +159,11 @@ function App({ onLogout }: { onLogout: () => void }) {
   }
 
   return <div className="app-shell">
-    <Topbar section={section} pendingCount={pendingCount} setSection={setSection} setActiveAgent={setActiveAgent} onAddAgent={() => setAddAgentOpen(true)} onLogout={onLogout} />
+    <Topbar section={section} pendingCount={pendingCount} setSection={openSection} setActiveAgent={setActiveAgent} onAddAgent={() => setAddAgentOpen(true)} onLogout={onLogout} />
     <main className="workspace">
-      {section === 'agenda' ? <OperationalAgenda items={agendaItems} loadError={apiError} onCreate={createAgendaItem} onUpdateStatus={updateAgendaStatus} onApprove={approveAgendaItem} onClose={() => setSection('office')} /> : <>
+      {section === 'agenda' ? <OperationalAgenda items={agendaItems} loadError={apiError} onCreate={createAgendaItem} onUpdateStatus={updateAgendaStatus} onApprove={approveAgendaItem} onClose={() => openSection('office')} /> : <>
         <OfficeStage activeAgent={activeAgent} pending={pending} processing={processing} pendingCount={pendingCount} agendaItems={agendaItems} setActiveAgent={setActiveAgent} />
-        {section === 'agents' ? <AgentsPanel setActiveAgent={setActiveAgent} close={() => setSection('office')} /> : section === 'requests' ? <RequestsPanel requests={requests} setActiveAgent={setActiveAgent} close={() => setSection('office')} /> : section === 'settings' ? <SettingsPanel onLogout={onLogout} installed={installed} canInstall={Boolean(installPrompt)} onInstall={() => void installApp()} /> : chatMinimized ? <ChatDock agent={agent} pending={pending[activeAgent]} restore={() => setChatMinimized(false)} /> : <ChatPanel agent={agent} messages={messages[activeAgent] as Message[]} pending={pending[activeAgent]} processing={processing[activeAgent]} apiReady={apiReady} draft={draft} setDraft={setDraft} sendMessage={sendMessage} minimize={() => setChatMinimized(true)} togglePending={() => setPending((current) => ({ ...current, [activeAgent]: !current[activeAgent] }))} />}
+        {section === 'agents' ? <AgentsPanel setActiveAgent={setActiveAgent} close={() => openSection('office')} /> : section === 'requests' ? <RequestsPanel requests={requests} setActiveAgent={setActiveAgent} close={() => openSection('office')} /> : section === 'settings' ? <SettingsPanel onLogout={onLogout} installed={installed} canInstall={Boolean(installPrompt)} onInstall={() => void installApp()} /> : chatMinimized ? <ChatDock agent={agent} pending={pending[activeAgent]} restore={() => setChatMinimized(false)} /> : <ChatPanel agent={agent} messages={messages[activeAgent] as Message[]} pending={pending[activeAgent]} processing={processing[activeAgent]} apiReady={apiReady} draft={draft} setDraft={setDraft} sendMessage={sendMessage} minimize={() => setChatMinimized(true)} togglePending={() => setPending((current) => ({ ...current, [activeAgent]: !current[activeAgent] }))} />}
       </>}
     </main>
     <footer className="app-footer"><img src="/assets/logo-dmente.png" alt="Dmente Digital" /><span>Desarrollado por Dmente Digital</span><a href="https://www.dmentedigital.co" target="_blank" rel="noreferrer">www.dmentedigital.co</a></footer>
@@ -161,7 +174,12 @@ function App({ onLogout }: { onLogout: () => void }) {
 createRoot(document.getElementById('root')!).render(<StrictMode><Root /></StrictMode>)
 
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => { void navigator.serviceWorker.register('/sw.js').catch(() => undefined) })
+  window.addEventListener('load', () => { void navigator.serviceWorker.register('/sw.js?v=2').catch(() => undefined) })
+}
+
+function sectionFromHash(hash: string): Section {
+  const section = hash.replace(/^#/, '')
+  return section === 'agents' || section === 'requests' || section === 'agenda' || section === 'settings' ? section : 'office'
 }
 
 type BeforeInstallPromptEvent = Event & {
