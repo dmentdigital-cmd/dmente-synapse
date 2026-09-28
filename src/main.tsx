@@ -4,6 +4,7 @@ import { agents, initialMessages } from './agents'
 import { ChatDock, ChatPanel } from './components/ChatPanel'
 import { AddAgentPanel } from './components/AddAgentPanel'
 import { AgentsPanel } from './components/AgentsPanel'
+import { OperationalAgenda } from './components/OperationalAgenda'
 import { LoginScreen } from './components/LoginScreen'
 import { OfficeStage } from './components/OfficeStage'
 import { RequestsPanel } from './components/RequestsPanel'
@@ -13,7 +14,8 @@ import type { AgentId, Message, Section } from './types'
 import './styles.css'
 
 type ApiMessage = { id: string; direction: 'user' | 'agent'; text: string; createdAt: string }
-export type ApiRequest = { id: string; agentId: AgentId; title: string; projectId: string | null; priority: 'low' | 'normal' | 'high' | 'urgent'; status: 'pending' | 'in_progress' | 'waiting_approval' | 'done' | 'cancelled'; nextAction: string; obsidianNote: string | null; sourcePath: string | null; sourceDriveFolder: string | null }
+export type ApiRequest = { id: string; agentId: AgentId; title: string; domain: string; projectId: string | null; priority: 'low' | 'normal' | 'high' | 'urgent'; status: 'pending' | 'in_progress' | 'waiting_approval' | 'blocked' | 'done' | 'cancelled'; riskLevel: 'low' | 'medium' | 'high'; requiresApproval: boolean; approvalConfirmed: boolean; startsAt: string | null; dueAt: string | null; nextAction: string; obsidianNote?: string | null; sourcePath: string | null; sourceDriveFolder: string | null }
+export type AgendaItem = ApiRequest & { id: string; kind: 'request' | 'commitment'; requestId: string | null; commitmentId: string | null; createdAt: string; updatedAt: string }
 type AuthState = { configured: boolean; authenticated: boolean; userId?: string }
 
 function Root() {
@@ -38,10 +40,12 @@ function App({ onLogout }: { onLogout: () => void }) {
   const [pending, setPending] = useState<Record<AgentId, boolean>>(() => Object.keys(agents).reduce((state, id) => ({ ...state, [id]: false }), {} as Record<AgentId, boolean>))
   const [processing, setProcessing] = useState<Record<AgentId, boolean>>(() => Object.keys(agents).reduce((state, id) => ({ ...state, [id]: false }), {} as Record<AgentId, boolean>))
   const [requests, setRequests] = useState<ApiRequest[]>([])
+  const [agendaItems, setAgendaItems] = useState<AgendaItem[]>([])
   const [draft, setDraft] = useState('')
   const [section, setSection] = useState<Section>('office')
   const [chatMinimized, setChatMinimized] = useState(false)
   const [apiReady, setApiReady] = useState(false)
+  const [apiError, setApiError] = useState('')
   const [addAgentOpen, setAddAgentOpen] = useState(false)
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [installed, setInstalled] = useState(() => window.matchMedia('(display-mode: standalone)').matches || Boolean((navigator as Navigator & { standalone?: boolean }).standalone))
@@ -67,21 +71,27 @@ function App({ onLogout }: { onLogout: () => void }) {
     let cancelled = false
     async function hydrate() {
       try {
-        const [requestsResponse, messagesResponse] = await Promise.all([fetch('/api/requests'), fetch(`/api/messages?agentId=${activeAgent}`)])
-        if (!requestsResponse.ok || !messagesResponse.ok) throw new Error('API no disponible')
-        const requests = await requestsResponse.json() as { requests: ApiRequest[] }
+        const [agendaResponse, messagesResponse] = await Promise.all([fetch('/api/operational-agenda'), fetch(`/api/messages?agentId=${activeAgent}`)])
+        if (!agendaResponse.ok) {
+          const failure = await agendaResponse.json() as { error?: string }
+          throw new Error(failure.error ?? 'No se pudo cargar la agenda')
+        }
+        if (!messagesResponse.ok) throw new Error('No se pudo cargar la sesión de Synapse')
+        const agenda = await agendaResponse.json() as { items: AgendaItem[] }
         const apiMessages = await messagesResponse.json() as { messages: ApiMessage[] }
         if (cancelled) return
-        const activeAgents = requests.requests.filter((request) => request.status !== 'done' && request.status !== 'cancelled').map((request) => request.agentId)
-        setRequests(requests.requests)
+        const activeAgents = agenda.items.filter((item) => item.status !== 'done' && item.status !== 'cancelled').map((item) => item.agentId)
+        setAgendaItems(agenda.items)
+        setRequests(agenda.items.filter((item) => item.kind === 'request'))
         setPending((current) => orderedAgents.reduce((next, [id]) => ({ ...next, [id]: activeAgents.includes(id) }), current))
         if (apiMessages.messages.length > 0) {
           setMessages((current) => ({ ...current, [activeAgent]: apiMessages.messages.map((message) => ({ from: message.direction, text: message.text, time: new Date(message.createdAt).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }) })) }))
           if (apiMessages.messages[apiMessages.messages.length - 1]?.direction === 'agent') setProcessing((current) => current[activeAgent] ? { ...current, [activeAgent]: false } : current)
         }
         setApiReady(true)
-      } catch {
-        if (!cancelled) setApiReady(false)
+        setApiError('')
+      } catch (cause) {
+        if (!cancelled) { setApiReady(false); setApiError(cause instanceof Error ? cause.message : 'API no disponible') }
       }
     }
     void hydrate()
@@ -111,11 +121,37 @@ function App({ onLogout }: { onLogout: () => void }) {
     }
   }
 
+  async function updateAgendaStatus(itemId: string, status: AgendaItem['status']) {
+    const response = await fetch(`/api/operational-agenda/items/${encodeURIComponent(itemId)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) })
+    const data = await response.json() as { item?: AgendaItem; error?: string }
+    if (!response.ok || !data.item) throw new Error(data.error ?? 'No se pudo actualizar la tarea')
+    setAgendaItems((current) => current.map((item) => item.id === itemId ? data.item! : item))
+    setRequests((current) => current.map((item) => item.id === itemId ? data.item! : item))
+  }
+
+  async function createAgendaItem(input: { title: string; domain: string; projectId: string; agentId: AgentId; priority: ApiRequest['priority']; riskLevel: ApiRequest['riskLevel']; requiresApproval: boolean; startsAt: string | null; dueAt: string | null; nextAction: string }) {
+    const response = await fetch('/api/operational-agenda/items', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
+    const data = await response.json() as { item?: AgendaItem; error?: string }
+    if (!response.ok || !data.item) throw new Error(data.error ?? 'No se pudo crear la tarea')
+    setAgendaItems((current) => [...current, data.item!].sort((left, right) => (left.startsAt ?? left.dueAt ?? '').localeCompare(right.startsAt ?? right.dueAt ?? '')))
+    setRequests((current) => [...current, data.item!])
+  }
+
+  async function approveAgendaItem(itemId: string) {
+    const response = await fetch(`/api/requests/${encodeURIComponent(itemId)}/approve`, { method: 'POST' })
+    const data = await response.json() as { request?: ApiRequest; error?: string }
+    if (!response.ok || !data.request) throw new Error(data.error ?? 'No se pudo registrar la aprobación')
+    setAgendaItems((current) => current.map((item) => item.id === itemId ? { ...item, ...data.request!, kind: 'request' } : item))
+    setRequests((current) => current.map((item) => item.id === itemId ? data.request! : item))
+  }
+
   return <div className="app-shell">
     <Topbar section={section} pendingCount={pendingCount} setSection={setSection} setActiveAgent={setActiveAgent} onAddAgent={() => setAddAgentOpen(true)} onLogout={onLogout} />
     <main className="workspace">
-      <OfficeStage activeAgent={activeAgent} pending={pending} pendingCount={pendingCount} setActiveAgent={setActiveAgent} />
-      {section === 'agents' ? <AgentsPanel setActiveAgent={setActiveAgent} close={() => setSection('office')} /> : section === 'requests' ? <RequestsPanel requests={requests} setActiveAgent={setActiveAgent} close={() => setSection('office')} /> : section === 'settings' ? <SettingsPanel onLogout={onLogout} installed={installed} canInstall={Boolean(installPrompt)} onInstall={() => void installApp()} /> : chatMinimized ? <ChatDock agent={agent} pending={pending[activeAgent]} restore={() => setChatMinimized(false)} /> : <ChatPanel agent={agent} messages={messages[activeAgent] as Message[]} pending={pending[activeAgent]} processing={processing[activeAgent]} apiReady={apiReady} draft={draft} setDraft={setDraft} sendMessage={sendMessage} minimize={() => setChatMinimized(true)} togglePending={() => setPending((current) => ({ ...current, [activeAgent]: !current[activeAgent] }))} />}
+      {section === 'agenda' ? <OperationalAgenda items={agendaItems} loadError={apiError} onCreate={createAgendaItem} onUpdateStatus={updateAgendaStatus} onApprove={approveAgendaItem} onClose={() => setSection('office')} /> : <>
+        <OfficeStage activeAgent={activeAgent} pending={pending} processing={processing} pendingCount={pendingCount} agendaItems={agendaItems} setActiveAgent={setActiveAgent} />
+        {section === 'agents' ? <AgentsPanel setActiveAgent={setActiveAgent} close={() => setSection('office')} /> : section === 'requests' ? <RequestsPanel requests={requests} setActiveAgent={setActiveAgent} close={() => setSection('office')} /> : section === 'settings' ? <SettingsPanel onLogout={onLogout} installed={installed} canInstall={Boolean(installPrompt)} onInstall={() => void installApp()} /> : chatMinimized ? <ChatDock agent={agent} pending={pending[activeAgent]} restore={() => setChatMinimized(false)} /> : <ChatPanel agent={agent} messages={messages[activeAgent] as Message[]} pending={pending[activeAgent]} processing={processing[activeAgent]} apiReady={apiReady} draft={draft} setDraft={setDraft} sendMessage={sendMessage} minimize={() => setChatMinimized(true)} togglePending={() => setPending((current) => ({ ...current, [activeAgent]: !current[activeAgent] }))} />}
+      </>}
     </main>
     <footer className="app-footer"><img src="/assets/logo-dmente.png" alt="Dmente Digital" /><span>Desarrollado por Dmente Digital</span><a href="https://www.dmentedigital.co" target="_blank" rel="noreferrer">www.dmentedigital.co</a></footer>
     {addAgentOpen && <AddAgentPanel close={() => setAddAgentOpen(false)} />}

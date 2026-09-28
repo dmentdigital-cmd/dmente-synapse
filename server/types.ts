@@ -4,7 +4,7 @@ export type AgentId =
   | 'finanzas-familiares' | 'educacion-aprendizaje' | 'conocimiento-obsidian'
   | 'pmo' | 'tecnico' | 'ventas' | 'marketing' | 'legal' | 'finanzas-dmente'
   | 'producto-vertice' | 'producto-synapse' | 'whatsapp-conversaciones'
-export type RequestStatus = 'pending' | 'in_progress' | 'waiting_approval' | 'done' | 'cancelled'
+export type RequestStatus = 'pending' | 'in_progress' | 'waiting_approval' | 'blocked' | 'done' | 'cancelled'
 export type ProfileRole = 'owner' | 'assistant'
 
 export type Agent = {
@@ -36,8 +36,9 @@ export type Commitment = {
   source: 'manual' | 'calendar' | 'whatsapp' | 'email' | 'note'
   startsAt: string | null
   dueAt: string | null
-  status: 'captured' | 'planned' | 'confirmed' | 'done' | 'cancelled'
+  status: 'captured' | 'planned' | 'confirmed' | 'pending' | 'in_progress' | 'waiting_approval' | 'blocked' | 'done' | 'cancelled'
   createdAt: string
+  updatedAt: string
 }
 
 export type RequestRecord = {
@@ -50,7 +51,11 @@ export type RequestRecord = {
   status: RequestStatus
   riskLevel: 'low' | 'medium' | 'high'
   requiresApproval: boolean
+  approvalConfirmed: boolean
+  approvedAt: string | null
   nextAction: string
+  startsAt: string | null
+  dueAt: string | null
   obsidianNote: string | null
   sourcePath: string | null
   sourceDriveFolder: string | null

@@ -2,8 +2,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { URL } from 'node:url'
-import { authStatus, clearSession, clearSessionCookie, login, setSessionCookie } from './auth.js'
-import { addAudit, addMessage, closeDatabase, createCommitment, createRequest, getLocalProfile, getRequest, listAgents, listCommitments, listMessages, listPermissions, listRequests, updateRequestSources, updateRequestStatus } from './db.js'
+import { authConfigured, authStatus, clearSession, clearSessionCookie, login, sessionFromRequest, setSessionCookie } from './auth.js'
+import { addAudit, addMessage, closeDatabase, confirmRequestApproval, createCommitment, createRequest, getLocalProfile, getRequest, listAgents, listCommitments, listMessages, listPermissions, listRequests, updateCommitmentStatus, updateRequestSources, updateRequestStatus } from './db.js'
 import { buildReply, routeRequest } from './orchestrator.js'
 import { authorized, handleMcp } from './mcp.js'
 import { getHermesStatus, isHermesConfigured, requestHermesReply } from './hermes.js'
@@ -25,6 +25,22 @@ async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
 }
 
 function text(value: unknown, fallback = ''): string { return typeof value === 'string' ? value.trim() : fallback }
+
+function requireOwnerSession(req: IncomingMessage, res: ServerResponse): boolean {
+  if (!authConfigured()) { send(res, 503, { error: 'Configura la autenticación de Synapse para consultar datos operativos.' }); return false }
+  if (!sessionFromRequest(req)) { send(res, 401, { error: 'Inicia sesión para consultar datos operativos.' }); return false }
+  return true
+}
+
+function agendaItemFromRequest(request: ReturnType<typeof listRequests>[number]) {
+  return { id: request.id, kind: 'request' as const, requestId: request.id, commitmentId: null, title: request.title, domain: request.domain, projectId: request.projectId, agentId: request.agentId, status: request.status, priority: request.priority, riskLevel: request.riskLevel, requiresApproval: request.requiresApproval, approvalConfirmed: request.approvalConfirmed, startsAt: request.startsAt, dueAt: request.dueAt, nextAction: request.nextAction, sourcePath: request.sourcePath, sourceDriveFolder: request.sourceDriveFolder, createdAt: request.createdAt, updatedAt: request.updatedAt }
+}
+
+function agendaItemFromCommitment(commitment: ReturnType<typeof listCommitments>[number]) {
+  const agentsByDomain: Partial<Record<Domain, string>> = { health: 'salud-familiar', family: 'salud-familiar', sales: 'ventas', marketing: 'marketing', learning: 'educacion-aprendizaje', projects: 'pmo', technology: 'tecnico', agency: 'pmo' }
+  const status = commitment.status === 'done' ? 'done' : commitment.status === 'cancelled' ? 'cancelled' : commitment.status === 'in_progress' || commitment.status === 'confirmed' ? 'in_progress' : commitment.status === 'waiting_approval' ? 'waiting_approval' : commitment.status === 'blocked' ? 'blocked' : 'pending'
+  return { id: `commitment:${commitment.id}`, kind: 'commitment' as const, requestId: null, commitmentId: commitment.id, title: commitment.title, domain: commitment.domain, projectId: null, agentId: agentsByDomain[commitment.domain] ?? 'secretaria', status, priority: 'normal' as const, riskLevel: 'low' as const, requiresApproval: false, approvalConfirmed: false, startsAt: commitment.startsAt, dueAt: commitment.dueAt, nextAction: '', sourcePath: null, sourceDriveFolder: null, createdAt: commitment.createdAt, updatedAt: commitment.updatedAt }
+}
 
 async function completeWithHermes(input: { requestId: string; conversationAgentId: Parameters<typeof addMessage>[0]['agentId']; decision: ReturnType<typeof routeRequest> }): Promise<void> {
   try {
@@ -103,9 +119,52 @@ const server = createServer(async (req, res) => {
     }
     if (req.method === 'GET' && url.pathname === '/api/profile') return send(res, 200, { profile: getLocalProfile(), permissions: listPermissions() })
     if (req.method === 'GET' && url.pathname === '/api/agents') return send(res, 200, { agents: listAgents() })
-    if (req.method === 'GET' && url.pathname === '/api/commitments') return send(res, 200, { commitments: listCommitments((url.searchParams.get('domain') as Domain | null) ?? undefined) })
-    if (req.method === 'GET' && url.pathname === '/api/requests') return send(res, 200, { requests: listRequests() })
+    if (req.method === 'GET' && url.pathname === '/api/commitments') {
+      if (!requireOwnerSession(req, res)) return
+      return send(res, 200, { commitments: listCommitments((url.searchParams.get('domain') as Domain | null) ?? undefined) })
+    }
+    if (req.method === 'GET' && url.pathname === '/api/requests') {
+      if (!requireOwnerSession(req, res)) return
+      return send(res, 200, { requests: listRequests() })
+    }
+    if (req.method === 'GET' && url.pathname === '/api/operational-agenda') {
+      if (!requireOwnerSession(req, res)) return
+      const items = [...listRequests().map(agendaItemFromRequest), ...listCommitments().map(agendaItemFromCommitment)]
+      const from = url.searchParams.get('from')
+      const to = url.searchParams.get('to')
+      const filtered = items.filter((item) => {
+        const date = item.startsAt ?? item.dueAt
+        if (!date) return !from && !to
+        const day = date.slice(0, 10)
+        return (!from || day >= from) && (!to || day <= to)
+      }).sort((left, right) => (left.startsAt ?? left.dueAt ?? '').localeCompare(right.startsAt ?? right.dueAt ?? ''))
+      return send(res, 200, { items: filtered })
+    }
+    if (req.method === 'POST' && url.pathname === '/api/operational-agenda/items') {
+      if (!requireOwnerSession(req, res)) return
+      const input = await body(req)
+      const title = text(input.title)
+      const agentId = text(input.agentId)
+      const domain = text(input.domain) as Domain
+      const priority = text(input.priority, 'normal')
+      const riskLevel = text(input.riskLevel, 'low')
+      const startsAtValue = text(input.startsAt)
+      const dueAtValue = text(input.dueAt)
+      const startsAt = startsAtValue ? new Date(startsAtValue) : null
+      const dueAt = dueAtValue ? new Date(dueAtValue) : null
+      if (!title) return send(res, 400, { error: 'Escribe un título para la tarea.' })
+      if (!listAgents().some((agent) => agent.id === agentId)) return send(res, 400, { error: 'Selecciona un agente válido.' })
+      if (!listPermissions().some((permission) => permission.domain === domain)) return send(res, 400, { error: 'Selecciona un dominio válido.' })
+      if (!['low', 'normal', 'high', 'urgent'].includes(priority)) return send(res, 400, { error: 'Selecciona una prioridad válida.' })
+      if (!['low', 'medium', 'high'].includes(riskLevel)) return send(res, 400, { error: 'Selecciona un nivel de riesgo válido.' })
+      if ((startsAtValue && (!startsAt || Number.isNaN(startsAt.getTime()))) || (dueAtValue && (!dueAt || Number.isNaN(dueAt.getTime())))) return send(res, 400, { error: 'Revisa las fechas y horas de la tarea.' })
+      if (startsAt && dueAt && startsAt.getTime() > dueAt.getTime()) return send(res, 400, { error: 'La fecha de vencimiento debe ser posterior al inicio.' })
+      const request = createRequest({ agentId: agentId as Parameters<typeof createRequest>[0]['agentId'], domain, title: title.slice(0, 200), projectId: text(input.projectId).slice(0, 120) || null, priority: priority as 'low' | 'normal' | 'high' | 'urgent', riskLevel: riskLevel as 'low' | 'medium' | 'high', requiresApproval: input.requiresApproval === true, initialStatus: 'pending', startsAt: startsAt?.toISOString() ?? null, dueAt: dueAt?.toISOString() ?? null, nextAction: text(input.nextAction) || 'Definir siguiente acción' })
+      addAudit({ requestId: request.id, action: 'agenda_item_created', summary: request.title, source: 'agenda-operativa' })
+      return send(res, 201, { item: agendaItemFromRequest(request) })
+    }
     if (req.method === 'GET' && url.pathname === '/api/messages') {
+      if (!requireOwnerSession(req, res)) return
       const agentId = text(url.searchParams.get('agentId')) as Parameters<typeof listMessages>[0]
       if (!agentId) return send(res, 400, { error: 'agentId es obligatorio' })
       return send(res, 200, { messages: listMessages(agentId) })
@@ -125,6 +184,7 @@ const server = createServer(async (req, res) => {
       return send(res, 201, { message })
     }
     if (req.method === 'POST' && url.pathname === '/api/commitments') {
+      if (!requireOwnerSession(req, res)) return
       const input = await body(req)
       const title = text(input.title)
       if (!title) return send(res, 400, { error: 'title es obligatorio' })
@@ -133,6 +193,7 @@ const server = createServer(async (req, res) => {
       return send(res, 201, { commitment })
     }
     if (req.method === 'POST' && url.pathname === '/api/messages') {
+      if (!requireOwnerSession(req, res)) return
       const input = await body(req)
       const message = text(input.text)
       if (!message) return send(res, 400, { error: 'text es obligatorio' })
@@ -153,13 +214,37 @@ const server = createServer(async (req, res) => {
     }
     const approvalMatch = url.pathname.match(/^\/api\/requests\/([^/]+)\/(approve|reject)$/)
     if (req.method === 'POST' && approvalMatch) {
-      const request = updateRequestStatus(approvalMatch[1], approvalMatch[2] === 'approve' ? 'done' : 'cancelled')
+      if (!requireOwnerSession(req, res)) return
+      const request = approvalMatch[2] === 'approve'
+        ? confirmRequestApproval(approvalMatch[1])
+        : updateRequestStatus(approvalMatch[1], 'cancelled')
       if (!request) return send(res, 404, { error: 'request not found' })
-      addAudit({ requestId: request.id, action: approvalMatch[2], summary: request.title, source: 'manual' })
+      addAudit({ requestId: request.id, action: approvalMatch[2] === 'approve' ? 'approval_confirmed' : 'request_cancelled', summary: request.title, source: 'manual' })
       return send(res, 200, { request })
+    }
+    const agendaStatusMatch = url.pathname.match(/^\/api\/operational-agenda\/items\/([^/]+)$/)
+    if (req.method === 'PATCH' && agendaStatusMatch) {
+      if (!requireOwnerSession(req, res)) return
+      const input = await body(req)
+      const status = text(input.status)
+      if (!['pending', 'in_progress', 'waiting_approval', 'blocked', 'done', 'cancelled'].includes(status)) return send(res, 400, { error: 'Estado no válido' })
+      const id = decodeURIComponent(agendaStatusMatch[1])
+      if (id.startsWith('commitment:')) {
+        const commitmentStatus = status === 'in_progress' ? 'in_progress' : status === 'waiting_approval' ? 'waiting_approval' : status === 'blocked' ? 'blocked' : status
+        const commitment = updateCommitmentStatus(id.slice('commitment:'.length), commitmentStatus as 'pending' | 'in_progress' | 'waiting_approval' | 'blocked' | 'done' | 'cancelled')
+        if (!commitment) return send(res, 404, { error: 'compromiso no encontrado' })
+        addAudit({ action: 'agenda_commitment_status_updated', summary: `${commitment.title}: ${commitment.status}`, source: 'agenda-operativa' })
+        return send(res, 200, { item: agendaItemFromCommitment(commitment) })
+      }
+      if (!getRequest(id)) return send(res, 404, { error: 'tarea no encontrada' })
+      const request = updateRequestStatus(id, status as 'pending' | 'in_progress' | 'waiting_approval' | 'blocked' | 'done' | 'cancelled')
+      if (!request) return send(res, 409, { error: 'Confirma la aprobación antes de marcar esta tarea como hecha.' })
+      addAudit({ requestId: request.id, action: 'agenda_status_updated', summary: `${request.title}: ${request.status}`, source: 'agenda-operativa' })
+      return send(res, 200, { item: agendaItemFromRequest(request) })
     }
     const sourcesMatch = url.pathname.match(/^\/api\/requests\/([^/]+)\/sources$/)
     if (req.method === 'POST' && sourcesMatch) {
+      if (!requireOwnerSession(req, res)) return
       const input = await body(req)
       const request = updateRequestSources(sourcesMatch[1], {
         obsidianNote: input.obsidianNote === null ? null : text(input.obsidianNote) || undefined,

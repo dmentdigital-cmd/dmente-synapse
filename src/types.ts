@@ -15,6 +15,6 @@ export type AgentId =
   | 'producto-vertice'
   | 'producto-synapse'
   | 'whatsapp-conversaciones'
-export type Section = 'office' | 'agents' | 'requests' | 'settings'
+export type Section = 'office' | 'agents' | 'requests' | 'agenda' | 'settings'
 export type Message = { from: 'agent' | 'user'; text: string; time: string }
 export type AgentView = { name: string; role: string; normal: string; attention: string; status: string; color: string; visibleInOffice?: boolean }
