@@ -1,9 +1,14 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { addAudit, addMessage, createCommitment, createRequest, getLocalProfile, getRequest, listAgents, listCommitments, listMessages, listRequests, updateRequestSources } from './db.js'
+import { addAudit, addMessage, createCommitment, createRequest, getLocalProfile, getRequest, listAgents, listCommitments, listMessages, listPermissions, listRequests, updateRequestSources } from './db.js'
+import { readJsonBody } from './security.js'
 import type { AgentId, Domain } from './types.js'
 
-const mcpToken = process.env.SYNAPSE_MCP_TOKEN
+const legacyMcpToken = process.env.SYNAPSE_MCP_TOKEN
+const mcpReadToken = process.env.SYNAPSE_MCP_READ_TOKEN
+const mcpWriteToken = process.env.SYNAPSE_MCP_WRITE_TOKEN
+type McpScope = 'read' | 'write' | null
+const readOnlyTools = new Set(['synapse_get_profile', 'synapse_list_agents', 'synapse_list_requests', 'synapse_list_messages', 'synapse_list_commitments'])
 
 type JsonRpcRequest = { jsonrpc?: string; id?: string | number | null; method?: string; params?: Record<string, unknown> }
 
@@ -22,20 +27,27 @@ const toolDefinitions = [
 
 function digest(value: string): Buffer { return createHash('sha256').update(value).digest() }
 export function authorized(req: IncomingMessage): boolean {
-  if (!mcpToken) return false
+  return authorizedScope(req) !== null
+}
+
+export function authorizedWrite(req: IncomingMessage): boolean {
+  return authorizedScope(req) === 'write'
+}
+
+function authorizedScope(req: IncomingMessage): McpScope {
   const received = req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : ''
-  return received.length > 0 && timingSafeEqual(digest(received), digest(mcpToken))
+  if (!received) return null
+  const receivedDigest = digest(received)
+  const matches = (token: string | undefined): boolean => Boolean(token && timingSafeEqual(receivedDigest, digest(token)))
+  if (matches(mcpWriteToken)) return 'write'
+  if (matches(mcpReadToken)) return 'read'
+  if (matches(legacyMcpToken)) return mcpWriteToken ? 'read' : 'write'
+  return null
 }
 function text(value: unknown): string { return typeof value === 'string' ? value.trim() : '' }
 function jsonRpc(id: JsonRpcRequest['id'], result: unknown): Record<string, unknown> { return { jsonrpc: '2.0', id: id ?? null, result } }
 function errorRpc(id: JsonRpcRequest['id'], code: number, message: string): Record<string, unknown> { return { jsonrpc: '2.0', id: id ?? null, error: { code, message } } }
 function toolResult(value: unknown): Record<string, unknown> { return { content: [{ type: 'text', text: JSON.stringify(value) }], structuredContent: value } }
-
-async function readJson(req: IncomingMessage): Promise<JsonRpcRequest> {
-  let raw = ''
-  for await (const chunk of req) raw += chunk
-  return raw ? JSON.parse(raw) as JsonRpcRequest : {}
-}
 
 async function callTool(name: string, args: Record<string, unknown>): Promise<unknown> {
   if (name === 'synapse_get_profile') return { profile: getLocalProfile() }
@@ -51,6 +63,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     const agentId = text(args.agentId) as AgentId
     const message = text(args.text)
     if (!requestId || !agentId || !message) throw new Error('requestId, agentId y text son obligatorios')
+    if (message.length > 10_000) throw new Error('La respuesta excede el máximo de 10000 caracteres')
     const request = getRequest(requestId)
     if (!request) throw new Error('request no encontrado')
     if (!listAgents().some((agent) => agent.id === agentId)) throw new Error('agentId no encontrado')
@@ -63,9 +76,14 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     const agentId = text(args.agentId) as AgentId
     const domain = text(args.domain) as Domain
     if (!title || !agentId || !domain) throw new Error('title, agentId y domain son obligatorios')
+    if (title.length > 200) throw new Error('title excede el máximo de 200 caracteres')
+    if (!listAgents().some((agent) => agent.id === agentId)) throw new Error('agentId no encontrado')
+    if (!listPermissions().some((permission) => permission.domain === domain)) throw new Error('domain no encontrado')
     const priority = text(args.priority) as 'low' | 'normal' | 'high' | 'urgent'
     const riskLevel = text(args.riskLevel) as 'low' | 'medium' | 'high'
-    const request = createRequest({ agentId, domain, title, projectId: text(args.projectId) || null, priority: priority || 'normal', riskLevel: riskLevel || 'medium', requiresApproval: args.requiresApproval !== false, nextAction: text(args.nextAction) || 'Revisar solicitud', obsidianNote: text(args.obsidianNote) || null, sourcePath: text(args.sourcePath) || null, sourceDriveFolder: text(args.sourceDriveFolder) || null })
+    if (priority && !['low', 'normal', 'high', 'urgent'].includes(priority)) throw new Error('priority no válido')
+    if (riskLevel && !['low', 'medium', 'high'].includes(riskLevel)) throw new Error('riskLevel no válido')
+    const request = createRequest({ agentId, domain, title, projectId: text(args.projectId).slice(0, 120) || null, priority: priority || 'normal', riskLevel: riskLevel || 'medium', requiresApproval: true, nextAction: text(args.nextAction).slice(0, 500) || 'Revisar solicitud', obsidianNote: text(args.obsidianNote).slice(0, 500) || null, sourcePath: text(args.sourcePath).slice(0, 1000) || null, sourceDriveFolder: text(args.sourceDriveFolder).slice(0, 1000) || null })
     addAudit({ requestId: request.id, action: 'mcp_request_created', summary: request.title, source: 'hermes-mcp' })
     return { request, requiresApproval: true }
   }
@@ -81,7 +99,11 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     const agentId = text(args.agentId) as AgentId
     const message = text(args.text)
     if (!agentId || !message) throw new Error('agentId y text son obligatorios')
-    addMessage({ agentId, requestId: text(args.requestId) || undefined, direction: 'agent', text: message })
+    if (!listAgents().some((agent) => agent.id === agentId)) throw new Error('agentId no encontrado')
+    if (message.length > 10_000) throw new Error('El mensaje excede el máximo de 10000 caracteres')
+    const requestId = text(args.requestId)
+    if (requestId && !getRequest(requestId)) throw new Error('request no encontrado')
+    addMessage({ agentId, requestId: requestId || undefined, direction: 'agent', text: message })
     addAudit({ action: 'mcp_message_added', summary: `${agentId}: ${message.slice(0, 120)}`, source: 'hermes-mcp' })
     return { saved: true, agentId }
   }
@@ -90,7 +112,16 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     const title = text(args.title)
     const domain = text(args.domain) as Domain
     if (!title || !domain) throw new Error('title y domain son obligatorios')
-    const commitment = createCommitment({ title, domain, people: Array.isArray(args.people) ? args.people.filter((item): item is string => typeof item === 'string') : [], source: 'manual', startsAt: text(args.startsAt) || null, dueAt: text(args.dueAt) || null })
+    if (title.length > 200) throw new Error('title excede el máximo de 200 caracteres')
+    if (!listPermissions().some((permission) => permission.domain === domain)) throw new Error('domain no encontrado')
+    const startsAtValue = text(args.startsAt)
+    const dueAtValue = text(args.dueAt)
+    const startsAt = startsAtValue ? new Date(startsAtValue) : null
+    const dueAt = dueAtValue ? new Date(dueAtValue) : null
+    if ((startsAtValue && (!startsAt || Number.isNaN(startsAt.getTime()))) || (dueAtValue && (!dueAt || Number.isNaN(dueAt.getTime())))) throw new Error('Fechas del compromiso no válidas')
+    if (startsAt && dueAt && startsAt.getTime() > dueAt.getTime()) throw new Error('La fecha de vencimiento debe ser posterior al inicio')
+    const people = Array.isArray(args.people) ? args.people.filter((item): item is string => typeof item === 'string').slice(0, 20).map((person) => person.trim().slice(0, 120)).filter(Boolean) : []
+    const commitment = createCommitment({ title, domain, people, source: 'manual', startsAt: startsAt?.toISOString() ?? null, dueAt: dueAt?.toISOString() ?? null })
     addAudit({ action: 'mcp_commitment_created', summary: commitment.title, source: 'hermes-mcp' })
     return { commitment }
   }
@@ -98,14 +129,14 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
 }
 
 export async function handleMcp(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, MCP-Protocol-Version')
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+  res.setHeader('Vary', 'Authorization')
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return }
-  if (!authorized(req)) { res.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify({ error: 'MCP no autorizado' })); return }
+  const scope = authorizedScope(req)
+  if (!scope) { res.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify({ error: 'MCP no autorizado' })); return }
   if (req.method === 'GET') { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Dmente Synapse MCP'); return }
   if (req.method !== 'POST') { res.writeHead(405); res.end(); return }
   try {
-    const message = await readJson(req)
+    const message = await readJsonBody(req) as JsonRpcRequest
     if (message.method === 'notifications/initialized' || message.method === 'notifications/cancelled') { res.writeHead(202); res.end(); return }
     if (message.method === 'initialize') {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'MCP-Protocol-Version': '2025-06-18' })
@@ -116,6 +147,11 @@ export async function handleMcp(req: IncomingMessage, res: ServerResponse): Prom
     if (message.method === 'tools/list') { res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(jsonRpc(message.id, { tools: toolDefinitions }))); return }
     if (message.method === 'tools/call') {
       const name = text(message.params?.name)
+      if (scope === 'read' && !readOnlyTools.has(name)) {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
+        res.end(JSON.stringify(errorRpc(message.id, -32003, 'El token MCP no tiene permiso de escritura interna')))
+        return
+      }
       const args = (message.params?.arguments ?? {}) as Record<string, unknown>
       const result = await callTool(name, args)
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(jsonRpc(message.id, toolResult(result)))); return

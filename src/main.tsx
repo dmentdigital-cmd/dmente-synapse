@@ -17,8 +17,8 @@ import './styles.css'
 
 type ApiMessage = { id: string; direction: 'user' | 'agent'; text: string; createdAt: string }
 export type ApiRequest = { id: string; agentId: AgentId; title: string; domain: string; projectId: string | null; priority: 'low' | 'normal' | 'high' | 'urgent'; status: 'pending' | 'in_progress' | 'waiting_approval' | 'blocked' | 'done' | 'cancelled'; riskLevel: 'low' | 'medium' | 'high'; requiresApproval: boolean; approvalConfirmed: boolean; startsAt: string | null; dueAt: string | null; nextAction: string; obsidianNote?: string | null; sourcePath: string | null; sourceDriveFolder: string | null }
-export type AgendaItem = ApiRequest & { id: string; kind: 'request' | 'commitment'; requestId: string | null; commitmentId: string | null; createdAt: string; updatedAt: string }
-type AuthState = { configured: boolean; authenticated: boolean; userId?: string }
+export type AgendaItem = ApiRequest & { id: string; kind: 'request' | 'commitment'; requestId: string | null; commitmentId: string | null; createdAt: string; updatedAt: string; lastStatusComment?: { comment: string | null; createdAt: string } | null }
+type AuthState = { configured: boolean; authenticated: boolean; mfaRequired?: boolean; userId?: string }
 
 function Root() {
   const [auth, setAuth] = useState<AuthState | null>(null)
@@ -32,7 +32,7 @@ function Root() {
     setAuth({ configured: true, authenticated: false })
   }
 
-  if (auth?.configured && !auth.authenticated) return <LoginScreen onAuthenticated={(userId) => setAuth({ configured: true, authenticated: true, userId })} />
+  if (auth?.configured && !auth.authenticated) return <LoginScreen mfaRequired={auth.mfaRequired} onAuthenticated={(userId) => setAuth({ configured: true, authenticated: true, userId })} />
   return <App onLogout={logout} />
 }
 
@@ -136,8 +136,8 @@ function App({ onLogout }: { onLogout: () => void }) {
     }
   }
 
-  async function updateAgendaStatus(itemId: string, status: AgendaItem['status']) {
-    const response = await fetch(`/api/operational-agenda/items/${encodeURIComponent(itemId)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) })
+  async function updateAgendaStatus(itemId: string, status: AgendaItem['status'], comment: string) {
+    const response = await fetch(`/api/operational-agenda/items/${encodeURIComponent(itemId)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status, comment }) })
     const data = await response.json() as { item?: AgendaItem; error?: string }
     if (!response.ok || !data.item) throw new Error(data.error ?? 'No se pudo actualizar la tarea')
     setAgendaItems((current) => current.map((item) => item.id === itemId ? data.item! : item))

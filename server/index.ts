@@ -2,11 +2,12 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { URL } from 'node:url'
-import { authConfigured, authStatus, clearSession, clearSessionCookie, login, sessionFromRequest, setSessionCookie } from './auth.js'
-import { addAudit, addMessage, closeDatabase, confirmRequestApproval, createCommitment, createRequest, getLocalProfile, getRequest, listAgents, listCommitments, listMessages, listPermissions, listRequests, updateCommitmentStatus, updateRequestSources, updateRequestStatus } from './db.js'
+import { authConfigured, authStatus, clearSession, clearSessionCookie, login, loginBlocked, sessionFromRequest, setSessionCookie } from './auth.js'
+import { addAudit, addMessage, closeDatabase, confirmRequestApproval, createCommitment, createRequest, getLatestAgendaStatusComment, getLocalProfile, getRequest, listAgents, listCommitments, listMessages, listPermissions, listRequests, recordAgendaStatusChange, updateCommitmentStatus, updateRequestSources, updateRequestStatus } from './db.js'
 import { buildReply, routeRequest } from './orchestrator.js'
-import { authorized, handleMcp } from './mcp.js'
+import { authorizedWrite, handleMcp } from './mcp.js'
 import { getHermesStatus, isHermesConfigured, requestHermesReply } from './hermes.js'
+import { allowApiRequest, applySecurityHeaders, clientAddress, readJsonBody, sameOriginMutation } from './security.js'
 import type { Domain } from './types.js'
 
 const port = Number(process.env.PORT ?? 3010)
@@ -14,14 +15,8 @@ const host = process.env.SYNAPSE_HOST ?? '127.0.0.1'
 const distDir = path.resolve(process.cwd(), 'dist')
 
 function send(res: ServerResponse, status: number, payload: unknown): void {
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': 'http://127.0.0.1:5173', 'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Allow-Methods': 'GET,POST,OPTIONS' })
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
   res.end(JSON.stringify(payload))
-}
-
-async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
-  let raw = ''
-  for await (const chunk of req) raw += chunk
-  return raw ? JSON.parse(raw) as Record<string, unknown> : {}
 }
 
 function text(value: unknown, fallback = ''): string { return typeof value === 'string' ? value.trim() : fallback }
@@ -33,13 +28,13 @@ function requireOwnerSession(req: IncomingMessage, res: ServerResponse): boolean
 }
 
 function agendaItemFromRequest(request: ReturnType<typeof listRequests>[number]) {
-  return { id: request.id, kind: 'request' as const, requestId: request.id, commitmentId: null, title: request.title, domain: request.domain, projectId: request.projectId, agentId: request.agentId, status: request.status, priority: request.priority, riskLevel: request.riskLevel, requiresApproval: request.requiresApproval, approvalConfirmed: request.approvalConfirmed, startsAt: request.startsAt, dueAt: request.dueAt, nextAction: request.nextAction, sourcePath: request.sourcePath, sourceDriveFolder: request.sourceDriveFolder, createdAt: request.createdAt, updatedAt: request.updatedAt }
+  return { id: request.id, kind: 'request' as const, requestId: request.id, commitmentId: null, title: request.title, domain: request.domain, projectId: request.projectId, agentId: request.agentId, status: request.status, priority: request.priority, riskLevel: request.riskLevel, requiresApproval: request.requiresApproval, approvalConfirmed: request.approvalConfirmed, startsAt: request.startsAt, dueAt: request.dueAt, nextAction: request.nextAction, sourcePath: request.sourcePath, sourceDriveFolder: request.sourceDriveFolder, createdAt: request.createdAt, updatedAt: request.updatedAt, lastStatusComment: getLatestAgendaStatusComment(request.id) }
 }
 
 function agendaItemFromCommitment(commitment: ReturnType<typeof listCommitments>[number]) {
   const agentsByDomain: Partial<Record<Domain, string>> = { health: 'salud-familiar', family: 'salud-familiar', sales: 'ventas', marketing: 'marketing', learning: 'educacion-aprendizaje', projects: 'pmo', technology: 'tecnico', agency: 'pmo' }
   const status = commitment.status === 'done' ? 'done' : commitment.status === 'cancelled' ? 'cancelled' : commitment.status === 'in_progress' || commitment.status === 'confirmed' ? 'in_progress' : commitment.status === 'waiting_approval' ? 'waiting_approval' : commitment.status === 'blocked' ? 'blocked' : 'pending'
-  return { id: `commitment:${commitment.id}`, kind: 'commitment' as const, requestId: null, commitmentId: commitment.id, title: commitment.title, domain: commitment.domain, projectId: null, agentId: agentsByDomain[commitment.domain] ?? 'secretaria', status, priority: 'normal' as const, riskLevel: 'low' as const, requiresApproval: false, approvalConfirmed: false, startsAt: commitment.startsAt, dueAt: commitment.dueAt, nextAction: '', sourcePath: null, sourceDriveFolder: null, createdAt: commitment.createdAt, updatedAt: commitment.updatedAt }
+  return { id: `commitment:${commitment.id}`, kind: 'commitment' as const, requestId: null, commitmentId: commitment.id, title: commitment.title, domain: commitment.domain, projectId: null, agentId: agentsByDomain[commitment.domain] ?? 'secretaria', status, priority: 'normal' as const, riskLevel: 'low' as const, requiresApproval: false, approvalConfirmed: false, startsAt: commitment.startsAt, dueAt: commitment.dueAt, nextAction: '', sourcePath: null, sourceDriveFolder: null, createdAt: commitment.createdAt, updatedAt: commitment.updatedAt, lastStatusComment: getLatestAgendaStatusComment(`commitment:${commitment.id}`) }
 }
 
 async function completeWithHermes(input: { requestId: string; conversationAgentId: Parameters<typeof addMessage>[0]['agentId']; decision: ReturnType<typeof routeRequest> }): Promise<void> {
@@ -62,11 +57,10 @@ async function completeWithHermes(input: { requestId: string; conversationAgentI
     addMessage({ requestId: input.requestId, agentId: input.conversationAgentId, direction: 'agent', text: reply })
     addAudit({ requestId: input.requestId, action: 'hermes_reply_created', summary: reply.slice(0, 120), source: 'hermes-api-server' })
   } catch (error) {
-    const detail = error instanceof Error ? error.message : 'Error desconocido'
-    console.error(`[Hermes] Solicitud ${input.requestId}: ${detail}`)
+    console.error(`[Hermes] Fallo al procesar la solicitud ${input.requestId}`)
     const failure = 'No pude activar LuciaBot en Hermes para esta solicitud. El caso quedó registrado y puede revisarse desde Solicitudes.'
     addMessage({ requestId: input.requestId, agentId: input.conversationAgentId, direction: 'agent', text: failure })
-    addAudit({ requestId: input.requestId, action: 'hermes_reply_failed', summary: detail.slice(0, 240), source: 'synapse-api' })
+    addAudit({ requestId: input.requestId, action: 'hermes_reply_failed', summary: 'Fallo al procesar respuesta de Hermes', source: 'synapse-api' })
   }
 }
 
@@ -98,18 +92,24 @@ async function serveStatic(pathname: string, res: ServerResponse): Promise<void>
 }
 
 const server = createServer(async (req, res) => {
+  applySecurityHeaders(res)
   try {
-    if (req.method === 'OPTIONS') return send(res, 204, {})
+    if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return }
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
+    if ((url.pathname.startsWith('/api/') || url.pathname === '/mcp') && !allowApiRequest(req)) return send(res, 429, { error: 'Demasiadas solicitudes. Intenta de nuevo en un minuto.' })
+    if (url.pathname.startsWith('/api/') && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method ?? '') && !sameOriginMutation(req)) return send(res, 403, { error: 'Origen de solicitud no permitido.' })
     if (url.pathname === '/mcp') return handleMcp(req, res)
     if (req.method === 'GET' && url.pathname === '/api/health') {
+      if (!sessionFromRequest(req)) return send(res, 200, { ok: true, service: 'dmente-synapse-api' })
       const hermes = await getHermesStatus()
       return send(res, 200, { ok: true, service: 'dmente-synapse-api', hermesAutomaticReplies: hermes.configured, hermesReachable: hermes.reachable, hermesLastError: hermes.lastError, time: new Date().toISOString() })
     }
     if (req.method === 'GET' && url.pathname === '/api/auth/session') return send(res, 200, authStatus(req))
     if (req.method === 'POST' && url.pathname === '/api/auth/login') {
-      const input = await body(req)
-      const token = login(text(input.username), text(input.password))
+      const input = await readJsonBody(req)
+      const address = clientAddress(req)
+      const token = login(text(input.username), text(input.password), address, text(input.mfaCode))
+      if (!token && loginBlocked(address)) return send(res, 429, { error: 'Demasiados intentos de inicio de sesión. Intenta más tarde.' })
       if (!token) return send(res, 401, { error: 'Credenciales inválidas o autenticación no configurada' })
       setSessionCookie(res, token)
       return send(res, 200, { authenticated: true, userId: 'diego-local' })
@@ -119,8 +119,14 @@ const server = createServer(async (req, res) => {
       clearSessionCookie(res)
       return send(res, 200, { authenticated: false })
     }
-    if (req.method === 'GET' && url.pathname === '/api/profile') return send(res, 200, { profile: getLocalProfile(), permissions: listPermissions() })
-    if (req.method === 'GET' && url.pathname === '/api/agents') return send(res, 200, { agents: listAgents() })
+    if (req.method === 'GET' && url.pathname === '/api/profile') {
+      if (!requireOwnerSession(req, res)) return
+      return send(res, 200, { profile: getLocalProfile(), permissions: listPermissions() })
+    }
+    if (req.method === 'GET' && url.pathname === '/api/agents') {
+      if (!requireOwnerSession(req, res)) return
+      return send(res, 200, { agents: listAgents() })
+    }
     if (req.method === 'GET' && url.pathname === '/api/commitments') {
       if (!requireOwnerSession(req, res)) return
       return send(res, 200, { commitments: listCommitments((url.searchParams.get('domain') as Domain | null) ?? undefined) })
@@ -144,7 +150,7 @@ const server = createServer(async (req, res) => {
     }
     if (req.method === 'POST' && url.pathname === '/api/operational-agenda/items') {
       if (!requireOwnerSession(req, res)) return
-      const input = await body(req)
+      const input = await readJsonBody(req)
       const title = text(input.title)
       const agentId = text(input.agentId)
       const domain = text(input.domain) as Domain
@@ -172,8 +178,8 @@ const server = createServer(async (req, res) => {
       return send(res, 200, { messages: listMessages(agentId) })
     }
     if (req.method === 'POST' && url.pathname === '/api/hermes/reply') {
-      if (!authorized(req)) return send(res, 401, { error: 'MCP no autorizado' })
-      const input = await body(req)
+      if (!authorizedWrite(req)) return send(res, 401, { error: 'MCP no autorizado para esta acción' })
+      const input = await readJsonBody(req)
       const requestId = text(input.requestId)
       const agentId = text(input.agentId) as Parameters<typeof addMessage>[0]['agentId']
       const messageText = text(input.text)
@@ -187,18 +193,29 @@ const server = createServer(async (req, res) => {
     }
     if (req.method === 'POST' && url.pathname === '/api/commitments') {
       if (!requireOwnerSession(req, res)) return
-      const input = await body(req)
+      const input = await readJsonBody(req)
       const title = text(input.title)
       if (!title) return send(res, 400, { error: 'title es obligatorio' })
-      const commitment = createCommitment({ title, domain: (text(input.domain, 'personal') as Domain), people: Array.isArray(input.people) ? input.people.filter((item): item is string => typeof item === 'string') : [], source: 'manual', startsAt: text(input.startsAt) || null, dueAt: text(input.dueAt) || null })
+      if (title.length > 200) return send(res, 400, { error: 'title excede el máximo de 200 caracteres' })
+      const domain = text(input.domain, 'personal') as Domain
+      if (!listPermissions().some((permission) => permission.domain === domain)) return send(res, 400, { error: 'Selecciona un dominio válido.' })
+      const startsAtValue = text(input.startsAt)
+      const dueAtValue = text(input.dueAt)
+      const startsAt = startsAtValue ? new Date(startsAtValue) : null
+      const dueAt = dueAtValue ? new Date(dueAtValue) : null
+      if ((startsAtValue && (!startsAt || Number.isNaN(startsAt.getTime()))) || (dueAtValue && (!dueAt || Number.isNaN(dueAt.getTime())))) return send(res, 400, { error: 'Revisa las fechas y horas del compromiso.' })
+      if (startsAt && dueAt && startsAt.getTime() > dueAt.getTime()) return send(res, 400, { error: 'La fecha de vencimiento debe ser posterior al inicio.' })
+      const people = Array.isArray(input.people) ? input.people.filter((item): item is string => typeof item === 'string').slice(0, 20).map((person) => person.trim().slice(0, 120)).filter(Boolean) : []
+      const commitment = createCommitment({ title, domain, people, source: 'manual', startsAt: startsAt?.toISOString() ?? null, dueAt: dueAt?.toISOString() ?? null })
       addAudit({ action: 'commitment_created', summary: commitment.title, source: 'api' })
       return send(res, 201, { commitment })
     }
     if (req.method === 'POST' && url.pathname === '/api/messages') {
       if (!requireOwnerSession(req, res)) return
-      const input = await body(req)
+      const input = await readJsonBody(req)
       const message = text(input.text)
       if (!message) return send(res, 400, { error: 'text es obligatorio' })
+      if (message.length > 10_000) return send(res, 413, { error: 'El mensaje excede el máximo de 10000 caracteres.' })
       const decision = routeRequest(message)
       const requestedAgentId = text(input.agentId) as Parameters<typeof addMessage>[0]['agentId']
       const conversationAgentId = requestedAgentId && listAgents().some((agent) => agent.id === requestedAgentId) ? requestedAgentId : decision.agentId
@@ -227,27 +244,34 @@ const server = createServer(async (req, res) => {
     const agendaStatusMatch = url.pathname.match(/^\/api\/operational-agenda\/items\/([^/]+)$/)
     if (req.method === 'PATCH' && agendaStatusMatch) {
       if (!requireOwnerSession(req, res)) return
-      const input = await body(req)
+      const input = await readJsonBody(req)
       const status = text(input.status)
+      const comment = text(input.comment)
+      if (comment.length > 2000) return send(res, 413, { error: 'El comentario no puede superar 2000 caracteres.' })
       if (!['pending', 'in_progress', 'waiting_approval', 'blocked', 'done', 'cancelled'].includes(status)) return send(res, 400, { error: 'Estado no válido' })
       const id = decodeURIComponent(agendaStatusMatch[1])
       if (id.startsWith('commitment:')) {
+        const current = listCommitments().find((item) => `commitment:${item.id}` === id)
+        if (!current) return send(res, 404, { error: 'compromiso no encontrado' })
         const commitmentStatus = status === 'in_progress' ? 'in_progress' : status === 'waiting_approval' ? 'waiting_approval' : status === 'blocked' ? 'blocked' : status
         const commitment = updateCommitmentStatus(id.slice('commitment:'.length), commitmentStatus as 'pending' | 'in_progress' | 'waiting_approval' | 'blocked' | 'done' | 'cancelled')
         if (!commitment) return send(res, 404, { error: 'compromiso no encontrado' })
+        recordAgendaStatusChange({ itemId: id, fromStatus: current.status, toStatus: commitment.status, comment })
         addAudit({ action: 'agenda_commitment_status_updated', summary: `${commitment.title}: ${commitment.status}`, source: 'agenda-operativa' })
         return send(res, 200, { item: agendaItemFromCommitment(commitment) })
       }
-      if (!getRequest(id)) return send(res, 404, { error: 'tarea no encontrada' })
+      const current = getRequest(id)
+      if (!current) return send(res, 404, { error: 'tarea no encontrada' })
       const request = updateRequestStatus(id, status as 'pending' | 'in_progress' | 'waiting_approval' | 'blocked' | 'done' | 'cancelled')
       if (!request) return send(res, 409, { error: 'Confirma la aprobación antes de marcar esta tarea como hecha.' })
+      recordAgendaStatusChange({ itemId: id, fromStatus: current.status, toStatus: request.status, comment })
       addAudit({ requestId: request.id, action: 'agenda_status_updated', summary: `${request.title}: ${request.status}`, source: 'agenda-operativa' })
       return send(res, 200, { item: agendaItemFromRequest(request) })
     }
     const sourcesMatch = url.pathname.match(/^\/api\/requests\/([^/]+)\/sources$/)
     if (req.method === 'POST' && sourcesMatch) {
       if (!requireOwnerSession(req, res)) return
-      const input = await body(req)
+      const input = await readJsonBody(req)
       const request = updateRequestSources(sourcesMatch[1], {
         obsidianNote: input.obsidianNote === null ? null : text(input.obsidianNote) || undefined,
         sourcePath: input.sourcePath === null ? null : text(input.sourcePath) || undefined,
@@ -263,8 +287,9 @@ const server = createServer(async (req, res) => {
     }
     return send(res, 404, { error: 'not found' })
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Error interno'
-    return send(res, 500, { error: message })
+    const statusCode = error && typeof error === 'object' && 'statusCode' in error && typeof error.statusCode === 'number' ? error.statusCode : 500
+    if (statusCode >= 500) console.error('[Synapse API] Error de solicitud')
+    return send(res, statusCode, { error: statusCode >= 500 ? 'Error interno. Intenta de nuevo o revisa los registros del servidor.' : error instanceof Error ? error.message : 'Solicitud inválida.' })
   }
 })
 

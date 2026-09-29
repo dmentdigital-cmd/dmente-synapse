@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import type { Agent, AgentId, Commitment, Domain, MessageRecord, Permission, Profile, ProfileRole, RequestRecord, RequestStatus } from './types.js'
 
@@ -77,8 +77,42 @@ db.exec(`
     action TEXT NOT NULL,
     summary TEXT NOT NULL,
     source TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    actor_type TEXT NOT NULL DEFAULT 'system',
+    actor_id TEXT,
+    project_id TEXT,
+    tool_name TEXT,
+    scope TEXT NOT NULL DEFAULT 'internal',
+    input_hash TEXT,
+    output_hash TEXT,
+    approved_by TEXT,
+    approved_at TEXT,
+    result TEXT NOT NULL DEFAULT 'recorded'
+  );
+  CREATE TABLE IF NOT EXISTS agenda_status_history (
+    id TEXT PRIMARY KEY,
+    item_id TEXT NOT NULL,
+    from_status TEXT NOT NULL,
+    to_status TEXT NOT NULL,
+    comment TEXT,
     created_at TEXT NOT NULL
   );
+  CREATE INDEX IF NOT EXISTS agenda_status_history_item_created ON agenda_status_history (item_id, created_at DESC);
+`)
+
+const auditColumns = new Set((db.prepare('PRAGMA table_info(audit_events)').all() as { name: string }[]).map((column) => column.name))
+for (const [name, declaration] of Object.entries({ actor_type: "TEXT NOT NULL DEFAULT 'system'", actor_id: 'TEXT', project_id: 'TEXT', tool_name: 'TEXT', scope: "TEXT NOT NULL DEFAULT 'internal'", input_hash: 'TEXT', output_hash: 'TEXT', approved_by: 'TEXT', approved_at: 'TEXT', result: "TEXT NOT NULL DEFAULT 'recorded'" })) {
+  if (!auditColumns.has(name)) db.exec(`ALTER TABLE audit_events ADD COLUMN ${name} ${declaration}`)
+}
+db.exec(`
+  CREATE TRIGGER IF NOT EXISTS audit_events_immutable_update BEFORE UPDATE ON audit_events
+  BEGIN SELECT RAISE(ABORT, 'audit events are immutable'); END;
+  CREATE TRIGGER IF NOT EXISTS audit_events_immutable_delete BEFORE DELETE ON audit_events
+  BEGIN SELECT RAISE(ABORT, 'audit events are immutable'); END;
+  CREATE TRIGGER IF NOT EXISTS agenda_status_history_immutable_update BEFORE UPDATE ON agenda_status_history
+  BEGIN SELECT RAISE(ABORT, 'agenda status history is immutable'); END;
+  CREATE TRIGGER IF NOT EXISTS agenda_status_history_immutable_delete BEFORE DELETE ON agenda_status_history
+  BEGIN SELECT RAISE(ABORT, 'agenda status history is immutable'); END;
 `)
 
 const commitmentColumns = new Set((db.prepare('PRAGMA table_info(commitments)').all() as { name: string }[]).map((column) => column.name))
@@ -197,6 +231,18 @@ export function updateRequestStatus(id: string, status: RequestStatus): RequestR
   return getRequest(id)
 }
 
+export function recordAgendaStatusChange(input: { itemId: string; fromStatus: string; toStatus: string; comment: string }): { comment: string; createdAt: string } {
+  const createdAt = new Date().toISOString()
+  db.prepare('INSERT INTO agenda_status_history (id, item_id, from_status, to_status, comment, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(randomUUID(), input.itemId, input.fromStatus, input.toStatus, input.comment || null, createdAt)
+  return { comment: input.comment, createdAt }
+}
+
+export function getLatestAgendaStatusComment(itemId: string): { comment: string | null; createdAt: string } | null {
+  const row = db.prepare('SELECT comment, created_at FROM agenda_status_history WHERE item_id = ? ORDER BY created_at DESC LIMIT 1').get(itemId) as { comment: string | null; created_at: string } | undefined
+  return row ? { comment: row.comment, createdAt: row.created_at } : null
+}
+
 export function confirmRequestApproval(id: string): RequestRecord | null {
   const current = getRequest(id)
   if (!current || !current.requiresApproval || current.status === 'done' || current.status === 'cancelled') return null
@@ -249,7 +295,14 @@ export function listMessages(agentId: AgentId): MessageRecord[] {
 }
 
 export function addAudit(input: { requestId?: string; action: string; summary: string; source: string }): void {
-  db.prepare('INSERT INTO audit_events (id, request_id, action, summary, source, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(randomUUID(), input.requestId ?? null, input.action, input.summary, input.source, new Date().toISOString())
+  const createdAt = new Date().toISOString()
+  const inputHash = createHash('sha256').update(input.summary).digest('hex')
+  const actorType = /^(hermes|mcp)/i.test(input.source) ? 'agent' : input.source === 'manual' ? 'human' : 'system'
+  const approved = input.action === 'approval_confirmed'
+  db.prepare(`INSERT INTO audit_events
+    (id, request_id, action, summary, source, created_at, actor_type, actor_id, tool_name, scope, input_hash, approved_by, approved_at, result)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'internal', ?, ?, ?, 'recorded')`)
+    .run(randomUUID(), input.requestId ?? null, input.action, '[redacted; SHA-256 recorded]', input.source, createdAt, actorType, actorType === 'human' ? 'diego-local' : input.source, input.action, inputHash, approved ? 'diego-local' : null, approved ? createdAt : null)
 }
 
 export function closeDatabase(): void { db.close() }

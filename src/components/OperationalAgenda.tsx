@@ -6,7 +6,7 @@ import type { AgentId } from '../types'
 
 type NewAgendaItem = { title: string; domain: string; projectId: string; agentId: AgentId; priority: ApiPriority; riskLevel: AgendaItem['riskLevel']; requiresApproval: boolean; startsAt: string; dueAt: string; nextAction: string }
 type ApiPriority = AgendaItem['priority']
-type Props = { items: AgendaItem[]; loadError: string; onCreate: (input: Omit<NewAgendaItem, 'startsAt' | 'dueAt'> & { startsAt: string | null; dueAt: string | null }) => Promise<void>; onUpdateStatus: (id: string, status: AgendaItem['status']) => Promise<void>; onApprove: (id: string) => Promise<void>; onClose: () => void }
+type Props = { items: AgendaItem[]; loadError: string; onCreate: (input: Omit<NewAgendaItem, 'startsAt' | 'dueAt'> & { startsAt: string | null; dueAt: string | null }) => Promise<void>; onUpdateStatus: (id: string, status: AgendaItem['status'], comment: string) => Promise<void>; onApprove: (id: string) => Promise<void>; onClose: () => void }
 type View = 'today' | 'tomorrow' | 'week' | 'overdue' | 'calendar' | 'kanban'
 const statusLabels: Record<AgendaItem['status'], string> = { pending: 'Pendiente', in_progress: 'En progreso', waiting_approval: 'Esperando aprobación', blocked: 'Bloqueado', done: 'Hecho', cancelled: 'Cancelado' }
 const priorityLabels = { urgent: 'Urgente', high: 'Alta', normal: 'Normal', low: 'Baja' } as const
@@ -86,6 +86,8 @@ export function OperationalAgenda({ items, loadError, onCreate, onUpdateStatus, 
   const [approvalOnly, setApprovalOnly] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
+  const [statusEdit, setStatusEdit] = useState<{ item: AgendaItem; status: AgendaItem['status']; comment: string } | null>(null)
+  const [statusBusy, setStatusBusy] = useState(false)
   const [createBusy, setCreateBusy] = useState(false)
   const [newItem, setNewItem] = useState<NewAgendaItem>({ title: '', domain: 'projects', projectId: '', agentId: 'pmo', priority: 'normal', riskLevel: 'low', requiresApproval: false, startsAt: '', dueAt: '', nextAction: '' })
   const [error, setError] = useState('')
@@ -142,6 +144,18 @@ export function OperationalAgenda({ items, loadError, onCreate, onUpdateStatus, 
     finally { setCreateBusy(false) }
   }
 
+  async function saveStatusChange(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!statusEdit) return
+    setStatusBusy(true)
+    setError('')
+    try {
+      await onUpdateStatus(statusEdit.item.id, statusEdit.status, statusEdit.comment.trim())
+      setStatusEdit(null)
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo guardar el cambio') }
+    finally { setStatusBusy(false) }
+  }
+
   function renderCard(item: AgendaItem) {
     const person = agentView(item.agentId)
     const day = itemDay(item)
@@ -155,10 +169,11 @@ export function OperationalAgenda({ items, loadError, onCreate, onUpdateStatus, 
       </div>
       <div className="agenda-task-meta"><span><CalendarClock size={14} />{formatSchedule(item)}</span><span><Sparkles size={13} />{person.name}</span>{item.projectId && <span className="agenda-project">{item.projectId}</span>}{overdue && <span className="agenda-overdue"><AlertTriangle size={13} />Atrasada</span>}</div>
       {item.nextAction && <p className="agenda-next-action"><b>Siguiente:</b> {item.nextAction}</p>}
+      {item.lastStatusComment?.comment && <p className="agenda-status-comment"><b>Comentario del cambio:</b> {item.lastStatusComment.comment}</p>}
       {item.sourcePath && <div className="agenda-source"><ExternalLink size={12} />{item.sourcePath.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? 'Referencia del proyecto'}</div>}
       <div className="agenda-task-footer"><span className={`agenda-status ${item.status}`}><Circle size={8} fill="currentColor" />{statusLabels[item.status] ?? item.status}</span><div className="agenda-task-actions">
         {item.requiresApproval && !item.approvalConfirmed && <button className="agenda-approve" disabled={busyId === item.id} onClick={() => void runAction(item.id, () => onApprove(item.id))}><ShieldAlert size={14} />Aprobar</button>}
-        <label className="agenda-status-control"><ArrowDownWideNarrow size={13} /><select aria-label={`Cambiar estado de ${item.title}`} value={item.status} disabled={busyId === item.id} onChange={(event) => void runAction(item.id, () => onUpdateStatus(item.id, event.target.value as AgendaItem['status']))}>
+        <label className="agenda-status-control"><ArrowDownWideNarrow size={13} /><select aria-label={`Cambiar estado de ${item.title}`} value={item.status} disabled={busyId === item.id} onChange={(event) => { const nextStatus = event.target.value as AgendaItem['status']; if (nextStatus !== item.status) setStatusEdit({ item, status: nextStatus, comment: '' }) }}>
           {(['pending', 'in_progress', 'waiting_approval', 'blocked', 'done', 'cancelled'] as AgendaItem['status'][]).map((next) => <option key={next} value={next} disabled={next === 'done' && item.requiresApproval && !item.approvalConfirmed}>{statusLabels[next]}</option>)}
         </select></label>
       </div></div>
@@ -179,6 +194,13 @@ export function OperationalAgenda({ items, loadError, onCreate, onUpdateStatus, 
       <select aria-label="Filtrar por estado" value={status} onChange={(event) => setStatus(event.target.value)}><option value="active">Estados activos</option><option value="all">Todos los estados</option>{Object.entries(statusLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
     </div>
     {(error || loadError) && <div className="agenda-error" role="alert"><AlertTriangle size={15} />{error || loadError}</div>}
+    {statusEdit && <div className="agenda-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !statusBusy) setStatusEdit(null) }}><form className="agenda-create-form status-comment-modal" role="dialog" aria-modal="true" aria-labelledby="status-comment-title" onSubmit={(event) => void saveStatusChange(event)}>
+      <header><div><span className="eyebrow">ACTUALIZACIÓN DE AGENDA</span><h2 id="status-comment-title">Cambiar a {statusLabels[statusEdit.status]}</h2></div><button type="button" aria-label="Cerrar" disabled={statusBusy} onClick={() => setStatusEdit(null)}><X size={17} /></button></header>
+      <p className="status-comment-task">{statusEdit.item.title}</p>
+      <label className="agenda-field">Comentario <span className="field-optional">Opcional</span><textarea autoFocus maxLength={2000} rows={4} placeholder="Deja contexto sobre este cambio…" value={statusEdit.comment} onChange={(event) => setStatusEdit({ ...statusEdit, comment: event.target.value })} /></label>
+      <p className="status-comment-hint">El comentario quedará guardado en el historial de la tarea. Evita incluir contraseñas o datos sensibles.</p>
+      <footer><button className="agenda-close" type="button" disabled={statusBusy} onClick={() => setStatusEdit(null)}>Cancelar</button><button className="agenda-new-task" type="submit" disabled={statusBusy}>{statusBusy ? 'Guardando…' : 'Guardar cambio'}</button></footer>
+    </form></div>}
     <div className="agenda-content">
       {view === 'kanban' ? <div className="agenda-kanban">{kanbanColumns.map((column) => {
         const columnItems = filteredItems.filter((item) => kanbanStatus(item) === column)
