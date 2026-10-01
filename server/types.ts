@@ -6,6 +6,20 @@ export type AgentId =
   | 'producto-vertice' | 'producto-synapse' | 'whatsapp-conversaciones'
 export type RequestStatus = 'pending' | 'in_progress' | 'waiting_approval' | 'blocked' | 'done' | 'cancelled'
 export type ProfileRole = 'owner' | 'assistant'
+export type UserRole = 'viewer' | 'operator' | 'approver' | 'admin'
+
+export type UserAccount = {
+  id: string
+  username: string
+  name: string
+  role: UserRole
+  domains: Domain[]
+  active: boolean
+  passwordHash: string
+  passwordSalt: string
+  totpSecretEncrypted: string | null
+  totpPendingEncrypted: string | null
+}
 
 export type Agent = {
   id: AgentId
@@ -67,6 +81,7 @@ export type MessageRecord = {
   id: string
   requestId: string | null
   agentId: AgentId
+  domain: Domain
   direction: 'user' | 'agent'
   text: string
   createdAt: string

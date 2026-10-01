@@ -1,15 +1,18 @@
 name: Security checks
 
 on:
-  pull_request:
   push:
+    branches: [main, 'codex/**']
+  pull_request:
     branches: [main]
+  schedule:
+    - cron: '23 8 * * 1'
 
 permissions:
   contents: read
 
 jobs:
-  verify:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
@@ -21,11 +24,11 @@ jobs:
           cache: npm
       - name: Install locked dependencies
         run: npm ci
-      - name: Audit production dependencies
+      - name: Audit production dependency tree
         run: npm audit --audit-level=high
       - name: Check server types
         run: npm run server:check
       - name: Run security tests
         run: npm test
-      - name: Build production bundle
+      - name: Build production assets
         run: npm run build

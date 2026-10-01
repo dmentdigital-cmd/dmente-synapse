@@ -17,8 +17,15 @@ Como la VPS ya tiene Coolify, se puede desplegar este repositorio como una aplic
 SYNAPSE_OWNER_USERNAME=diego
 SYNAPSE_OWNER_PASSWORD=<TU_CONTRASENA_REAL>
 SYNAPSE_SESSION_SECRET=<TU_CLAVE_ALEATORIA_LARGA>
+SYNAPSE_TOTP_ENCRYPTION_KEY=<OTRA_CLAVE_ALEATORIA_LARGA>
+SYNAPSE_MCP_READ_TOKEN=<TOKEN_DE_LECTURA>
+SYNAPSE_MCP_WRITE_TOKEN=<TOKEN_DE_ESCRITURA>
 SYNAPSE_DATA_DIR=/app/data
+SYNAPSE_MCP_READ_DOMAINS=<DOMINIOS_MINIMOS_SEPARADOS_POR_COMAS>
+SYNAPSE_MCP_WRITE_DOMAINS=<DOMINIOS_MINIMOS_SEPARADOS_POR_COMAS>
 ```
+
+La contraseña del propietario debe tener al menos 12 caracteres. `SYNAPSE_SESSION_SECRET` y `SYNAPSE_TOTP_ENCRYPTION_KEY` deben ser secretos distintos de al menos 32 caracteres y conservarse entre despliegues. Los dominios MCP deben limitarse al mínimo necesario; una lista vacía no concede acceso en producción. Confirma la topología del proxy antes de definir `SYNAPSE_TRUSTED_PROXY_HOPS`.
 
 No escribir secretos en el Dockerfile ni en el repositorio. Coolify inyecta las variables de entorno en el contenedor y requiere redeploy o restart para aplicar cambios. [Variables de entorno en Coolify](https://coolify.io/docs/applications/configuration/environment-variables)
 

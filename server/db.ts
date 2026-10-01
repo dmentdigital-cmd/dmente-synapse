@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
-import type { Agent, AgentId, Commitment, Domain, MessageRecord, Permission, Profile, ProfileRole, RequestRecord, RequestStatus } from './types.js'
+import type { Agent, AgentId, Commitment, Domain, MessageRecord, Permission, Profile, ProfileRole, RequestRecord, RequestStatus, UserAccount, UserRole } from './types.js'
 
 const dataDir = process.env.SYNAPSE_DATA_DIR ?? path.resolve(process.cwd(), 'data')
 mkdirSync(dataDir, { recursive: true })
@@ -20,6 +20,20 @@ db.exec(`
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     role TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS user_accounts (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+    name TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('viewer', 'operator', 'approver', 'admin')),
+    domains_json TEXT NOT NULL DEFAULT '[]',
+    active INTEGER NOT NULL DEFAULT 1,
+    password_hash TEXT NOT NULL,
+    password_salt TEXT NOT NULL,
+    totp_secret_enc TEXT,
+    totp_pending_enc TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS profile_permissions (
     profile_id TEXT NOT NULL,
@@ -67,6 +81,7 @@ db.exec(`
     id TEXT PRIMARY KEY,
     request_id TEXT,
     agent_id TEXT NOT NULL,
+    domain TEXT NOT NULL DEFAULT 'personal',
     direction TEXT NOT NULL,
     text TEXT NOT NULL,
     created_at TEXT NOT NULL
@@ -99,6 +114,16 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS agenda_status_history_item_created ON agenda_status_history (item_id, created_at DESC);
 `)
+
+const accountColumns = new Set((db.prepare('PRAGMA table_info(user_accounts)').all() as { name: string }[]).map((column) => column.name))
+if (!accountColumns.has('totp_secret_enc')) db.exec('ALTER TABLE user_accounts ADD COLUMN totp_secret_enc TEXT')
+if (!accountColumns.has('totp_pending_enc')) db.exec('ALTER TABLE user_accounts ADD COLUMN totp_pending_enc TEXT')
+
+const messageColumns = new Set((db.prepare('PRAGMA table_info(messages)').all() as { name: string }[]).map((column) => column.name))
+if (!messageColumns.has('domain')) {
+  db.exec("ALTER TABLE messages ADD COLUMN domain TEXT NOT NULL DEFAULT 'personal'")
+  db.exec("UPDATE messages SET domain = COALESCE((SELECT domain FROM requests WHERE requests.id = messages.request_id), (SELECT domain FROM agents WHERE agents.id = messages.agent_id), 'personal')")
+}
 
 const auditColumns = new Set((db.prepare('PRAGMA table_info(audit_events)').all() as { name: string }[]).map((column) => column.name))
 for (const [name, declaration] of Object.entries({ actor_type: "TEXT NOT NULL DEFAULT 'system'", actor_id: 'TEXT', project_id: 'TEXT', tool_name: 'TEXT', scope: "TEXT NOT NULL DEFAULT 'internal'", input_hash: 'TEXT', output_hash: 'TEXT', approved_by: 'TEXT', approved_at: 'TEXT', result: "TEXT NOT NULL DEFAULT 'recorded'" })) {
@@ -182,6 +207,51 @@ export function listAgents(): Agent[] {
 export function getLocalProfile(): Profile {
   const row = db.prepare('SELECT id, name, role FROM profiles WHERE id = ?').get(localProfile.id) as Record<string, unknown>
   return { id: String(row.id), name: String(row.name), role: row.role as ProfileRole }
+}
+
+function accountFromRow(row: Record<string, unknown>): UserAccount {
+  return { id: String(row.id), username: String(row.username), name: String(row.name), role: row.role as UserRole, domains: JSON.parse(String(row.domains_json)) as Domain[], active: Boolean(row.active), passwordHash: String(row.password_hash), passwordSalt: String(row.password_salt), totpSecretEncrypted: row.totp_secret_enc ? String(row.totp_secret_enc) : null, totpPendingEncrypted: row.totp_pending_enc ? String(row.totp_pending_enc) : null }
+}
+
+export function updateUserTotp(id: string, input: { secretEncrypted: string | null; pendingEncrypted: string | null }): boolean {
+  const result = db.prepare('UPDATE user_accounts SET totp_secret_enc = ?, totp_pending_enc = ?, updated_at = ? WHERE id = ?').run(input.secretEncrypted, input.pendingEncrypted, new Date().toISOString(), id)
+  return Number(result.changes) > 0
+}
+
+export function findUserByUsername(username: string): UserAccount | null {
+  const row = db.prepare('SELECT * FROM user_accounts WHERE username = ? COLLATE NOCASE').get(username) as Record<string, unknown> | undefined
+  return row ? accountFromRow(row) : null
+}
+
+export function findUserById(id: string): UserAccount | null {
+  const row = db.prepare('SELECT * FROM user_accounts WHERE id = ?').get(id) as Record<string, unknown> | undefined
+  return row ? accountFromRow(row) : null
+}
+
+export function listUserAccounts(): Omit<UserAccount, 'passwordHash' | 'passwordSalt' | 'totpSecretEncrypted' | 'totpPendingEncrypted'>[] {
+  const rows = db.prepare('SELECT id, username, name, role, domains_json, active FROM user_accounts ORDER BY name COLLATE NOCASE').all() as Record<string, unknown>[]
+  return rows.map((row) => ({ id: String(row.id), username: String(row.username), name: String(row.name), role: row.role as UserRole, domains: JSON.parse(String(row.domains_json)) as Domain[], active: Boolean(row.active) }))
+}
+
+export function createUserAccount(input: { id: string; username: string; name: string; role: UserRole; domains: Domain[]; passwordHash: string; passwordSalt: string }): boolean {
+  const now = new Date().toISOString()
+  try {
+    db.prepare('INSERT INTO user_accounts (id, username, name, role, domains_json, active, password_hash, password_salt, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)')
+      .run(input.id, input.username, input.name, input.role, JSON.stringify(input.domains), input.passwordHash, input.passwordSalt, now, now)
+    return true
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) return false
+    throw error
+  }
+}
+
+export function updateUserAccount(id: string, input: { name?: string; role?: UserRole; domains?: Domain[]; active?: boolean; passwordHash?: string; passwordSalt?: string }): boolean {
+  const current = findUserById(id)
+  if (!current) return false
+  const now = new Date().toISOString()
+  db.prepare('UPDATE user_accounts SET name = ?, role = ?, domains_json = ?, active = ?, password_hash = ?, password_salt = ?, updated_at = ? WHERE id = ?')
+    .run(input.name ?? current.name, input.role ?? current.role, JSON.stringify(input.domains ?? current.domains), input.active === undefined ? Number(current.active) : Number(input.active), input.passwordHash ?? current.passwordHash, input.passwordSalt ?? current.passwordSalt, now, id)
+  return true
 }
 
 export function listPermissions(profileId = localProfile.id): Permission[] {
@@ -283,26 +353,29 @@ export function listRequests(): RequestRecord[] {
   return rows.map(requestFromRow)
 }
 
-export function addMessage(input: { requestId?: string; agentId: AgentId; direction: 'user' | 'agent'; text: string }): MessageRecord {
-  const message: MessageRecord = { id: randomUUID(), requestId: input.requestId ?? null, agentId: input.agentId, direction: input.direction, text: input.text, createdAt: new Date().toISOString() }
-  db.prepare('INSERT INTO messages (id, request_id, agent_id, direction, text, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(message.id, message.requestId, message.agentId, message.direction, message.text, message.createdAt)
+export function addMessage(input: { requestId?: string; agentId: AgentId; domain: Domain; direction: 'user' | 'agent'; text: string }): MessageRecord {
+  const message: MessageRecord = { id: randomUUID(), requestId: input.requestId ?? null, agentId: input.agentId, domain: input.domain, direction: input.direction, text: input.text, createdAt: new Date().toISOString() }
+  db.prepare('INSERT INTO messages (id, request_id, agent_id, domain, direction, text, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(message.id, message.requestId, message.agentId, message.domain, message.direction, message.text, message.createdAt)
   return message
 }
 
-export function listMessages(agentId: AgentId): MessageRecord[] {
-  const rows = db.prepare('SELECT id, request_id, agent_id, direction, text, created_at FROM messages WHERE agent_id = ? ORDER BY created_at ASC').all(agentId) as Record<string, unknown>[]
-  return rows.map((row) => ({ id: String(row.id), requestId: row.request_id ? String(row.request_id) : null, agentId: row.agent_id as AgentId, direction: row.direction as MessageRecord['direction'], text: String(row.text), createdAt: String(row.created_at) }))
+export function listMessages(agentId: AgentId, allowedDomains?: Domain[]): MessageRecord[] {
+  if (allowedDomains && !allowedDomains.length) return []
+  const rows = allowedDomains
+    ? db.prepare(`SELECT id, request_id, agent_id, domain, direction, text, created_at FROM messages WHERE agent_id = ? AND domain IN (${allowedDomains.map(() => '?').join(',')}) ORDER BY created_at ASC`).all(agentId, ...allowedDomains)
+    : db.prepare('SELECT id, request_id, agent_id, domain, direction, text, created_at FROM messages WHERE agent_id = ? ORDER BY created_at ASC').all(agentId)
+  return (rows as Record<string, unknown>[]).map((row) => ({ id: String(row.id), requestId: row.request_id ? String(row.request_id) : null, agentId: row.agent_id as AgentId, domain: row.domain as Domain, direction: row.direction as MessageRecord['direction'], text: String(row.text), createdAt: String(row.created_at) }))
 }
 
-export function addAudit(input: { requestId?: string; action: string; summary: string; source: string }): void {
+export function addAudit(input: { requestId?: string; action: string; summary: string; source: string; actorId?: string }): void {
   const createdAt = new Date().toISOString()
   const inputHash = createHash('sha256').update(input.summary).digest('hex')
-  const actorType = /^(hermes|mcp)/i.test(input.source) ? 'agent' : input.source === 'manual' ? 'human' : 'system'
+  const actorType = /^(hermes|mcp)/i.test(input.source) ? 'agent' : input.source === 'manual' || input.source === 'admin' ? 'human' : 'system'
   const approved = input.action === 'approval_confirmed'
   db.prepare(`INSERT INTO audit_events
     (id, request_id, action, summary, source, created_at, actor_type, actor_id, tool_name, scope, input_hash, approved_by, approved_at, result)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'internal', ?, ?, ?, 'recorded')`)
-    .run(randomUUID(), input.requestId ?? null, input.action, '[redacted; SHA-256 recorded]', input.source, createdAt, actorType, actorType === 'human' ? 'diego-local' : input.source, input.action, inputHash, approved ? 'diego-local' : null, approved ? createdAt : null)
+    .run(randomUUID(), input.requestId ?? null, input.action, '[redacted; SHA-256 recorded]', input.source, createdAt, actorType, input.actorId ?? (actorType === 'human' ? 'diego-local' : input.source), input.action, inputHash, approved ? input.actorId ?? 'diego-local' : null, approved ? createdAt : null)
 }
 
 export function closeDatabase(): void { db.close() }
