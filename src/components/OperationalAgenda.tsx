@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from 'react'
 import { AlertTriangle, ArrowDownWideNarrow, CalendarClock, Check, CheckCheck, Circle, Clock3, ExternalLink, Filter, Pencil, Plus, Save, ShieldAlert, Sparkles, Trash2, X } from 'lucide-react'
 import { agents } from '../agents'
 import type { AgendaItem } from '../main'
@@ -102,6 +102,8 @@ export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete
   const [createBusy, setCreateBusy] = useState(false)
   const [newItem, setNewItem] = useState<NewAgendaItem>({ title: '', domain: 'projects', projectId: '', agentId: 'pmo', priority: 'normal', riskLevel: 'low', requiresApproval: false, startsAt: '', dueAt: '', nextAction: '' })
   const [error, setError] = useState('')
+  const modalBusy = useRef(false)
+  modalBusy.current = createBusy || deleteBusy || statusBusy
   const today = dateKey(new Date())
   const tomorrow = shiftDay(today, 1)
   const weekEnd = shiftDay(today, 6)
@@ -114,16 +116,18 @@ export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete
     controls().find((control) => control.hasAttribute('autofocus'))?.focus()
     if (!dialog?.contains(document.activeElement)) controls()[0]?.focus()
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !createBusy && !deleteBusy && !statusBusy) { setCreateOpen(false); setEditingItem(null); setDeleteItem(null); setStatusEdit(null) }
+      if (event.key === 'Escape' && !modalBusy.current) { setCreateOpen(false); setEditingItem(null); setDeleteItem(null); setStatusEdit(null) }
       if (event.key !== 'Tab') return
       const list = controls()
+      if (!list.length) { event.preventDefault(); dialog?.focus(); return }
       const first = list[0], last = list[list.length - 1]
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
+      if (!list.includes(document.activeElement as HTMLElement)) { event.preventDefault(); (event.shiftKey ? last : first)?.focus() }
+      else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
     }
     document.addEventListener('keydown', onKey)
-    return () => { document.removeEventListener('keydown', onKey); if (previousFocus?.isConnected) previousFocus.focus() }
-  }, [createOpen, Boolean(deleteItem), Boolean(statusEdit), createBusy, deleteBusy, statusBusy])
+    return () => { document.removeEventListener('keydown', onKey); if (previousFocus?.isConnected) previousFocus.focus(); else document.querySelector<HTMLButtonElement>('.agenda-new-task')?.focus() }
+  }, [createOpen, Boolean(deleteItem), Boolean(statusEdit)])
 
   function openEditor(item: AgendaItem | null) {
     setError('')
@@ -254,13 +258,13 @@ export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete
       <select aria-label="Filtrar por estado" value={status} onChange={(event) => setStatus(event.target.value)}><option value="active">Estados activos</option><option value="all">Todos los estados</option>{Object.entries(statusLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
     </div>
     {(error || loadError) && <div className="agenda-error" role="alert"><AlertTriangle size={15} />{error || loadError}</div>}
-    {deleteItem && <div className="agenda-modal-backdrop"><form className="agenda-create-form status-comment-modal" role="alertdialog" aria-modal="true" aria-labelledby="agenda-delete-title" onSubmit={(event) => void confirmDelete(event)}>
+    {deleteItem && <div className="agenda-modal-backdrop"><form tabIndex={-1} className="agenda-create-form status-comment-modal" role="alertdialog" aria-modal="true" aria-labelledby="agenda-delete-title" onSubmit={(event) => void confirmDelete(event)}>
       <header><h2 id="agenda-delete-title">Eliminar tarea</h2><button type="button" aria-label="Cerrar" disabled={deleteBusy} onClick={() => setDeleteItem(null)}><X size={18} /></button></header>
       <p className="status-comment-task">{deleteItem.title}</p><p className="status-comment-hint">Se quitará de la agenda. Su historial interno quedará conservado.</p>
       {error && <div className="agenda-error" role="alert">{error}</div>}
       <footer><button type="button" autoFocus className="agenda-close" disabled={deleteBusy} onClick={() => setDeleteItem(null)}>Cancelar</button><button type="submit" className="agenda-delete-task" disabled={deleteBusy}><Trash2 size={15} />{deleteBusy ? 'Eliminando…' : 'Eliminar tarea'}</button></footer>
     </form></div>}
-    {statusEdit && <div className="agenda-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !statusBusy) setStatusEdit(null) }}><form className="agenda-create-form status-comment-modal" role="dialog" aria-modal="true" aria-labelledby="status-comment-title" onSubmit={(event) => void saveStatusChange(event)}>
+    {statusEdit && <div className="agenda-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !statusBusy) setStatusEdit(null) }}><form tabIndex={-1} className="agenda-create-form status-comment-modal" role="dialog" aria-modal="true" aria-labelledby="status-comment-title" onSubmit={(event) => void saveStatusChange(event)}>
       <header><div><span className="eyebrow">ACTUALIZACIÓN DE AGENDA</span><h2 id="status-comment-title">Cambiar a {statusLabels[statusEdit.status]}</h2></div><button type="button" aria-label="Cerrar" disabled={statusBusy} onClick={() => setStatusEdit(null)}><X size={17} /></button></header>
       <p className="status-comment-task">{statusEdit.item.title}</p>
       <label className="agenda-field">Comentario <span className="field-optional">Opcional</span><textarea autoFocus maxLength={2000} rows={4} placeholder="Deja contexto sobre este cambio…" value={statusEdit.comment} onChange={(event) => setStatusEdit({ ...statusEdit, comment: event.target.value })} /></label>
@@ -278,7 +282,7 @@ export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete
       })}</div> : filteredItems.length ? <div className="agenda-list">{filteredItems.map((item) => renderCard(item))}</div> : <div className="agenda-empty"><span><CheckCheck size={23} /></span><strong>Agenda despejada</strong><p>No hay tareas en esta vista con los filtros actuales.</p><button onClick={() => { setView('week'); setDomain('all'); setProject('all'); setAgent('all'); setPriority('all'); setStatus('active'); setApprovalOnly(false) }}>Ver semana completa</button></div>}
     </div>
     <footer className="agenda-footer"><span><ShieldAlert size={13} />Las acciones externas siguen sujetas a aprobación registrada.</span><span><Clock3 size={13} />Hora Colombia</span></footer>
-    {createOpen && <div className="agenda-modal-backdrop"><form className="agenda-create-form" role="dialog" aria-modal="true" aria-labelledby="agenda-create-title" onSubmit={(event) => void createTask(event)}>
+    {createOpen && <div className="agenda-modal-backdrop"><form tabIndex={-1} className="agenda-create-form" role="dialog" aria-modal="true" aria-labelledby="agenda-create-title" onSubmit={(event) => void createTask(event)}>
       <header><h2 id="agenda-create-title">{editingItem ? 'Editar tarea' : 'Agregar a la agenda'}</h2><button type="button" className="icon-button" aria-label="Cerrar" disabled={createBusy} onClick={() => setCreateOpen(false)}><X size={18} /></button></header>
       <label className="agenda-field agenda-field-wide">Título<input autoFocus required maxLength={200} value={newItem.title} onChange={(event) => setNewItem({ ...newItem, title: event.target.value })} placeholder="¿Qué hay que hacer?" /></label>
       <div className="agenda-form-grid">
