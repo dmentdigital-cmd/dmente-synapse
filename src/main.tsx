@@ -152,6 +152,22 @@ function App({ onLogout }: { onLogout: () => void }) {
     setRequests((current) => [...current, data.item!])
   }
 
+  async function editAgendaItem(itemId: string, input: Record<string, unknown>) {
+    const response = await fetch(`/api/operational-agenda/items/${encodeURIComponent(itemId)}/details`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
+    const data = await response.json() as { item?: AgendaItem; error?: string }
+    if (!response.ok || !data.item) throw new Error(data.error ?? 'No se pudo editar la tarea')
+    setAgendaItems((current) => current.map((item) => item.id === itemId ? data.item! : item))
+    setRequests((current) => current.map((item) => item.id === itemId ? data.item! : item))
+  }
+
+  async function deleteAgendaItem(item: AgendaItem) {
+    const response = await fetch(`/api/operational-agenda/items/${encodeURIComponent(item.id)}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedTitle: item.title }) })
+    const data = await response.json() as { deleted?: boolean; error?: string }
+    if (!response.ok || !data.deleted) throw new Error(data.error ?? 'No se pudo eliminar la tarea')
+    setAgendaItems((current) => current.filter((entry) => entry.id !== item.id))
+    setRequests((current) => current.filter((entry) => entry.id !== item.id))
+  }
+
   async function approveAgendaItem(itemId: string) {
     const response = await fetch(`/api/requests/${encodeURIComponent(itemId)}/approve`, { method: 'POST' })
     const data = await response.json() as { request?: ApiRequest; error?: string }
@@ -163,7 +179,7 @@ function App({ onLogout }: { onLogout: () => void }) {
   return <div className="app-shell">
     <Topbar section={section} pendingCount={pendingCount} setSection={openSection} setActiveAgent={setActiveAgent} onAddAgent={() => setAddAgentOpen(true)} onLogout={onLogout} />
     <main className="workspace">
-      {section === 'agenda' ? <AgendaErrorBoundary onClose={() => openSection('office')}><OperationalAgenda items={agendaItems} loadError={apiError} onCreate={createAgendaItem} onUpdateStatus={updateAgendaStatus} onApprove={approveAgendaItem} onClose={() => openSection('office')} /></AgendaErrorBoundary> : <>
+      {section === 'agenda' ? <AgendaErrorBoundary onClose={() => openSection('office')}><OperationalAgenda items={agendaItems} loadError={apiError} onCreate={createAgendaItem} onEdit={editAgendaItem} onDelete={deleteAgendaItem} onUpdateStatus={updateAgendaStatus} onApprove={approveAgendaItem} onClose={() => openSection('office')} /></AgendaErrorBoundary> : <>
         <OfficeStage activeAgent={activeAgent} pending={pending} processing={processing} pendingCount={pendingCount} agendaItems={agendaItems} setActiveAgent={setActiveAgent} />
         {section === 'agents' ? <AgentsPanel setActiveAgent={setActiveAgent} close={() => openSection('office')} /> : section === 'requests' ? <RequestsErrorBoundary onClose={() => openSection('office')}><RequestsPanel requests={requests} setActiveAgent={setActiveAgent} close={() => openSection('office')} /></RequestsErrorBoundary> : section === 'settings' ? <SettingsPanel onLogout={onLogout} installed={installed} canInstall={Boolean(installPrompt)} onInstall={() => void installApp()} /> : chatMinimized ? <ChatDock agent={agent} pending={pending[activeAgent]} restore={() => setChatMinimized(false)} /> : <ChatPanel agent={agent} messages={messages[activeAgent] as Message[]} pending={pending[activeAgent]} processing={processing[activeAgent]} apiReady={apiReady} draft={draft} setDraft={setDraft} sendMessage={sendMessage} minimize={() => setChatMinimized(true)} togglePending={() => setPending((current) => ({ ...current, [activeAgent]: !current[activeAgent] }))} />}
       </>}
