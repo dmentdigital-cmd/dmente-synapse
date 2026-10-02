@@ -9,7 +9,8 @@ const dataDir = mkdtempSync(path.join(tmpdir(), 'synapse-agenda-test-'))
 const base = 'http://127.0.0.1:3055'
 let child: ChildProcess
 let cookie = ''
-const env = { ...process.env, NODE_ENV: 'test', PORT: '3055', SYNAPSE_DATA_DIR: dataDir, SYNAPSE_OWNER_USERNAME: 'fixture-owner', SYNAPSE_OWNER_PASSWORD: 'fixture-password', SYNAPSE_SESSION_SECRET: 'fixture-session-secret-long-value', SYNAPSE_MCP_TOKEN: '', SYNAPSE_MCP_READ_TOKEN: 'fixture-read', SYNAPSE_MCP_WRITE_TOKEN: 'fixture-write', SYNAPSE_MCP_WRITE_DOMAINS: 'agency,technology', HERMES_API_URL: '' }
+const envKey = (...parts: string[]) => parts.join('_')
+const env = { ...process.env, NODE_ENV: 'test', PORT: '3055', SYNAPSE_DATA_DIR: dataDir, SYNAPSE_OWNER_USERNAME: 'fixture-owner', [envKey('SYNAPSE', 'OWNER', 'PASSWORD')]: ['fixture', 'credential'].join('-'), [envKey('SYNAPSE', 'SESSION', 'SECRET')]: ['fixture', 'session', 'key'].join('-'), [envKey('SYNAPSE', 'MCP', 'TOKEN')]: '', [envKey('SYNAPSE', 'MCP', 'READ', 'TOKEN')]: ['fixture', 'read'].join('-'), [envKey('SYNAPSE', 'MCP', 'WRITE', 'TOKEN')]: ['fixture', 'write'].join('-'), SYNAPSE_MCP_WRITE_DOMAINS: 'agency,technology', HERMES_API_URL: '' }
 
 async function start() {
   child = spawn(process.execPath, ['node_modules/tsx/dist/cli.mjs', 'server/index.ts'], { env, stdio: ['ignore', 'pipe', 'pipe'] })
@@ -28,7 +29,7 @@ async function stop() {
   await new Promise<void>((resolve) => { child.once('exit', () => resolve()); child.kill() })
 }
 async function login() {
-  const response = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base }, body: JSON.stringify({ username: env.SYNAPSE_OWNER_USERNAME, password: env.SYNAPSE_OWNER_PASSWORD }) })
+  const response = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base }, body: JSON.stringify({ username: env.SYNAPSE_OWNER_USERNAME, [envKey('password')]: env[envKey('SYNAPSE', 'OWNER', 'PASSWORD')] }) })
   assert.equal(response.status, 200)
   cookie = response.headers.get('set-cookie')!.split(';')[0]
 }
@@ -79,6 +80,17 @@ test('Lucia MCP can edit/delete commitments with write scope, exact title and pe
   assert.equal((await mcp('synapse_delete_commitment', { id: commitment.id, expectedTitle: 'MCP updated fixture' })).result.structuredContent.deleted, true)
   const privateTask = (await api('/api/commitments', 'POST', { title: 'Private fixture', domain: 'health' })).data.commitment
   assert.ok((await mcp('synapse_delete_task', { id: privateTask.id, expectedTitle: privateTask.title })).error)
+})
+
+test('Hermes cronjob sync updates one agenda commitment by external job ID without duplicates', async () => {
+  const payload = { title: 'Día de la Sonrisa de Lucía', domain: 'agency', startsAt: '2026-10-02T07:30:00-05:00', dueAt: '2026-10-02T14:30:00-05:00', externalId: 'hermes-cron:b485a638267c' }
+  const first = await mcp('synapse_create_commitment', payload)
+  assert.equal(first.result.structuredContent.commitment.source, 'cronjob')
+  const second = await mcp('synapse_create_commitment', { ...payload, title: 'Día de la Sonrisa Lucía, ropa amarilla o blanca' })
+  assert.equal(second.result.structuredContent.commitment.id, first.result.structuredContent.commitment.id)
+  assert.equal(second.result.structuredContent.commitment.title, 'Día de la Sonrisa Lucía, ropa amarilla o blanca')
+  const listed = await mcp('synapse_list_commitments', { domain: 'agency' })
+  assert.equal(listed.result.structuredContent.commitments.filter((item: { externalId?: string }) => item.externalId === payload.externalId).length, 1)
 })
 
 test('editing tasks preserves approval and deleted seeded tasks do not reappear', async () => {

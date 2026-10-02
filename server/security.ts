@@ -21,7 +21,8 @@ export function clientAddress(req: IncomingMessage): string {
   if (!Number.isInteger(trustedProxyHops) || trustedProxyHops < 1) return remoteAddress
   const forwardedHeader = req.headers['x-forwarded-for']
   const forwarded = (Array.isArray(forwardedHeader) ? forwardedHeader.join(',') : forwardedHeader ?? '').split(',').map((entry) => entry.trim()).filter(Boolean)
-  return forwarded.length ? forwarded[Math.max(0, forwarded.length - trustedProxyHops)] : remoteAddress
+  if (forwarded.length < trustedProxyHops) return remoteAddress
+  return forwarded[forwarded.length - trustedProxyHops] ?? remoteAddress
 }
 
 export function allowApiRequest(req: IncomingMessage, now = Date.now()): boolean {

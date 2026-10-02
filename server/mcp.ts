@@ -9,7 +9,17 @@ const legacyMcpToken = process.env.SYNAPSE_MCP_TOKEN
 const mcpReadToken = process.env.SYNAPSE_MCP_READ_TOKEN
 const mcpWriteToken = process.env.SYNAPSE_MCP_WRITE_TOKEN
 type McpScope = 'read' | 'write' | null
+type McpAccess = { scope: Exclude<McpScope, null>; domains: Domain[] }
 const readOnlyTools = new Set(['synapse_get_profile', 'synapse_list_agents', 'synapse_list_requests', 'synapse_list_messages', 'synapse_list_commitments'])
+const knownDomains: Domain[] = ['agency', 'personal', 'family', 'health', 'education', 'church', 'learning', 'wellbeing', 'projects', 'technology', 'finance', 'knowledge', 'product', 'messaging', 'sales', 'marketing', 'legal']
+
+function configuredDomains(variable: string): Domain[] {
+  const configured = (process.env[variable] ?? '').split(',').map((value) => value.trim()).filter(Boolean)
+  if (!configured.length && process.env.NODE_ENV !== 'production') return knownDomains
+  return [...new Set(configured.filter((value): value is Domain => knownDomains.includes(value as Domain)))]
+}
+const readDomains = configuredDomains('SYNAPSE_MCP_READ_DOMAINS')
+const writeDomains = configuredDomains('SYNAPSE_MCP_WRITE_DOMAINS')
 
 type JsonRpcRequest = { jsonrpc?: string; id?: string | number | null; method?: string; params?: Record<string, unknown> }
 
@@ -27,7 +37,7 @@ const toolDefinitions = [
   { name: 'synapse_update_request_sources', description: 'Agrega o actualiza en una solicitud las referencias a Obsidian, estado canónico local o carpeta de Drive.', inputSchema: { type: 'object', properties: { requestId: { type: 'string' }, obsidianNote: { type: 'string' }, sourcePath: { type: 'string' }, sourceDriveFolder: { type: 'string' } }, required: ['requestId'] } },
   { name: 'synapse_add_message', description: 'Agrega un mensaje de Hermes o LuciaBot a la conversación.', inputSchema: { type: 'object', properties: { agentId: { type: 'string' }, text: { type: 'string' }, requestId: { type: 'string' } }, required: ['agentId', 'text'] } },
   { name: 'synapse_list_commitments', description: 'Lista compromisos personales, familiares y de agencia.', inputSchema: { type: 'object', properties: { domain: { type: 'string' } } } },
-  { name: 'synapse_create_commitment', description: 'Registra un compromiso. No envía mensajes ni crea eventos externos.', inputSchema: { type: 'object', properties: { title: { type: 'string' }, domain: { type: 'string' }, people: { type: 'array', items: { type: 'string' } }, startsAt: { type: 'string' }, dueAt: { type: 'string' } }, required: ['title', 'domain'] } },
+  { name: 'synapse_create_commitment', description: 'Registra o sincroniza de forma idempotente un compromiso (por ejemplo, desde un cronjob). No envía mensajes ni crea eventos externos.', inputSchema: { type: 'object', properties: { title: { type: 'string' }, domain: { type: 'string' }, people: { type: 'array', items: { type: 'string' } }, startsAt: { type: 'string' }, dueAt: { type: 'string' }, externalId: { type: 'string', description: 'ID estable del evento externo para actualizarlo sin duplicarlo al reintentar.' } }, required: ['title', 'domain'] } },
 ]
 
 function digest(value: string): Buffer { return createHash('sha256').update(value).digest() }
@@ -36,43 +46,54 @@ export function authorized(req: IncomingMessage): boolean {
 }
 
 export function authorizedWrite(req: IncomingMessage): boolean {
-  return authorizedScope(req) === 'write'
+  return authorizedScope(req)?.scope === 'write'
 }
 
-function authorizedScope(req: IncomingMessage): McpScope {
+export function authorizedWriteForDomain(req: IncomingMessage, domain: Domain): boolean {
+  const access = authorizedScope(req)
+  return Boolean(access && access.scope === 'write' && access.domains.includes(domain))
+}
+
+function authorizedScope(req: IncomingMessage): McpAccess | null {
   const received = req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : ''
   if (!received) return null
   const receivedDigest = digest(received)
   const matches = (token: string | undefined): boolean => Boolean(token && timingSafeEqual(receivedDigest, digest(token)))
-  if (matches(mcpWriteToken)) return 'write'
-  if (matches(mcpReadToken)) return 'read'
-  if (matches(legacyMcpToken)) return mcpWriteToken ? 'read' : 'write'
+  if (matches(mcpWriteToken)) return { scope: 'write', domains: writeDomains }
+  if (matches(mcpReadToken)) return { scope: 'read', domains: readDomains }
+  if (matches(legacyMcpToken)) return mcpWriteToken ? { scope: 'read', domains: readDomains } : { scope: 'write', domains: writeDomains }
   return null
 }
 function text(value: unknown): string { return typeof value === 'string' ? value.trim() : '' }
 function jsonRpc(id: JsonRpcRequest['id'], result: unknown): Record<string, unknown> { return { jsonrpc: '2.0', id: id ?? null, result } }
 function errorRpc(id: JsonRpcRequest['id'], code: number, message: string): Record<string, unknown> { return { jsonrpc: '2.0', id: id ?? null, error: { code, message } } }
 function toolResult(value: unknown): Record<string, unknown> { return { content: [{ type: 'text', text: JSON.stringify(value) }], structuredContent: value } }
+function requireDomainAccess(access: McpAccess, domain: Domain): void {
+  if (!access.domains.includes(domain)) throw new Error('El token MCP no tiene acceso a ese dominio')
+}
 
-async function callTool(name: string, args: Record<string, unknown>): Promise<unknown> {
+async function callTool(name: string, args: Record<string, unknown>, access: McpAccess): Promise<unknown> {
   if (['synapse_update_commitment', 'synapse_update_task', 'synapse_delete_commitment', 'synapse_delete_task'].includes(name)) {
+    if (access.scope !== 'write') throw new Error('El token MCP no tiene permiso de escritura interna')
     const id = text(args.id)
     if (!id) throw new Error('id es obligatorio')
     const commitmentOnly = name.endsWith('_commitment')
-    const configured = process.env.SYNAPSE_MCP_WRITE_DOMAINS
-    const allowDomain = (domain: Domain) => configured === undefined || configured.split(',').map((entry) => entry.trim()).includes(domain)
+    const allowDomain = (domain: Domain) => access.domains.includes(domain)
     if (name.startsWith('synapse_delete_')) return removeAgendaRecord(id, args.expectedTitle, 'hermes-mcp', allowDomain, commitmentOnly)
     if (!args.changes || typeof args.changes !== 'object' || Array.isArray(args.changes)) throw new Error('changes debe ser un objeto')
     const result = editAgendaRecord(id, args.changes as Record<string, unknown>, 'hermes-mcp', allowDomain, commitmentOnly)
     return result.kind === 'commitment' ? { commitment: result.record } : { request: result.record }
   }
-  if (name === 'synapse_get_profile') return { profile: getLocalProfile() }
-  if (name === 'synapse_list_agents') return { agents: listAgents() }
-  if (name === 'synapse_list_requests') return { requests: listRequests() }
+  if (name === 'synapse_get_profile') return { profile: getLocalProfile(), domains: access.domains }
+  if (name === 'synapse_list_agents') return { agents: listAgents().filter((agent) => access.domains.includes(agent.domain)) }
+  if (name === 'synapse_list_requests') return { requests: listRequests().filter((request) => access.domains.includes(request.domain)) }
   if (name === 'synapse_list_messages') {
     const agentId = text(args.agentId) as AgentId
     if (!agentId) throw new Error('agentId es obligatorio')
-    return { messages: listMessages(agentId) }
+    const agent = listAgents().find((item) => item.id === agentId)
+    if (!agent) throw new Error('agentId no encontrado')
+    requireDomainAccess(access, agent.domain)
+    return { messages: listMessages(agentId, access.domains) }
   }
   if (name === 'synapse_reply_to_request') {
     const requestId = text(args.requestId)
@@ -82,8 +103,11 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     if (message.length > 10_000) throw new Error('La respuesta excede el máximo de 10000 caracteres')
     const request = getRequest(requestId)
     if (!request) throw new Error('request no encontrado')
-    if (!listAgents().some((agent) => agent.id === agentId)) throw new Error('agentId no encontrado')
-    const saved = addMessage({ requestId, agentId, direction: 'agent', text: message })
+    requireDomainAccess(access, request.domain)
+    const agent = listAgents().find((item) => item.id === agentId)
+    if (!agent) throw new Error('agentId no encontrado')
+    requireDomainAccess(access, agent.domain)
+    const saved = addMessage({ requestId, agentId, domain: request.domain, direction: 'agent', text: message })
     addAudit({ requestId, action: 'hermes_reply_created', summary: message.slice(0, 120), source: 'hermes-lucia' })
     return { message: saved }
   }
@@ -92,8 +116,10 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     const agentId = text(args.agentId) as AgentId
     const domain = text(args.domain) as Domain
     if (!title || !agentId || !domain) throw new Error('title, agentId y domain son obligatorios')
+    requireDomainAccess(access, domain)
     if (title.length > 200) throw new Error('title excede el máximo de 200 caracteres')
-    if (!listAgents().some((agent) => agent.id === agentId)) throw new Error('agentId no encontrado')
+    const assignedAgent = listAgents().find((agent) => agent.id === agentId)
+    if (!assignedAgent || assignedAgent.domain !== domain) throw new Error('agentId no corresponde al dominio solicitado')
     if (!listPermissions().some((permission) => permission.domain === domain)) throw new Error('domain no encontrado')
     const priority = text(args.priority) as 'low' | 'normal' | 'high' | 'urgent'
     const riskLevel = text(args.riskLevel) as 'low' | 'medium' | 'high'
@@ -106,6 +132,9 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
   if (name === 'synapse_update_request_sources') {
     const requestId = text(args.requestId)
     if (!requestId) throw new Error('requestId es obligatorio')
+    const existing = getRequest(requestId)
+    if (!existing) throw new Error('request no encontrado')
+    requireDomainAccess(access, existing.domain)
     const request = updateRequestSources(requestId, { obsidianNote: text(args.obsidianNote) || undefined, sourcePath: text(args.sourcePath) || undefined, sourceDriveFolder: text(args.sourceDriveFolder) || undefined })
     if (!request) throw new Error('request no encontrado')
     addAudit({ requestId, action: 'request_sources_updated', summary: 'Referencias documentales actualizadas', source: 'hermes-mcp' })
@@ -115,19 +144,31 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     const agentId = text(args.agentId) as AgentId
     const message = text(args.text)
     if (!agentId || !message) throw new Error('agentId y text son obligatorios')
-    if (!listAgents().some((agent) => agent.id === agentId)) throw new Error('agentId no encontrado')
+    const agent = listAgents().find((item) => item.id === agentId)
+    if (!agent) throw new Error('agentId no encontrado')
+    requireDomainAccess(access, agent.domain)
     if (message.length > 10_000) throw new Error('El mensaje excede el máximo de 10000 caracteres')
     const requestId = text(args.requestId)
-    if (requestId && !getRequest(requestId)) throw new Error('request no encontrado')
-    addMessage({ agentId, requestId: requestId || undefined, direction: 'agent', text: message })
+    if (requestId) {
+      const request = getRequest(requestId)
+      if (!request) throw new Error('request no encontrado')
+      requireDomainAccess(access, request.domain)
+    }
+    const request = requestId ? getRequest(requestId) : null
+    addMessage({ agentId, requestId: requestId || undefined, domain: request?.domain ?? agent.domain, direction: 'agent', text: message })
     addAudit({ action: 'mcp_message_added', summary: `${agentId}: ${message.slice(0, 120)}`, source: 'hermes-mcp' })
     return { saved: true, agentId }
   }
-  if (name === 'synapse_list_commitments') return { commitments: listCommitments(text(args.domain) as Domain || undefined) }
+  if (name === 'synapse_list_commitments') {
+    const requestedDomain = text(args.domain) as Domain | ''
+    if (requestedDomain) requireDomainAccess(access, requestedDomain)
+    return { commitments: listCommitments(requestedDomain || undefined).filter((item) => access.domains.includes(item.domain)) }
+  }
   if (name === 'synapse_create_commitment') {
     const title = text(args.title)
     const domain = text(args.domain) as Domain
     if (!title || !domain) throw new Error('title y domain son obligatorios')
+    requireDomainAccess(access, domain)
     if (title.length > 200) throw new Error('title excede el máximo de 200 caracteres')
     if (!listPermissions().some((permission) => permission.domain === domain)) throw new Error('domain no encontrado')
     const startsAtValue = text(args.startsAt)
@@ -137,8 +178,10 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     if ((startsAtValue && (!startsAt || Number.isNaN(startsAt.getTime()))) || (dueAtValue && (!dueAt || Number.isNaN(dueAt.getTime())))) throw new Error('Fechas del compromiso no válidas')
     if (startsAt && dueAt && startsAt.getTime() > dueAt.getTime()) throw new Error('La fecha de vencimiento debe ser posterior al inicio')
     const people = Array.isArray(args.people) ? args.people.filter((item): item is string => typeof item === 'string').slice(0, 20).map((person) => person.trim().slice(0, 120)).filter(Boolean) : []
-    const commitment = createCommitment({ title, domain, people, source: 'manual', startsAt: startsAt?.toISOString() ?? null, dueAt: dueAt?.toISOString() ?? null })
-    addAudit({ action: 'mcp_commitment_created', summary: commitment.title, source: 'hermes-mcp' })
+    const externalId = text(args.externalId)
+    if (externalId.length > 200) throw new Error('externalId excede el máximo de 200 caracteres')
+    const commitment = createCommitment({ title, domain, people, source: externalId ? 'cronjob' : 'manual', startsAt: startsAt?.toISOString() ?? null, dueAt: dueAt?.toISOString() ?? null, externalId: externalId || null })
+    addAudit({ action: externalId ? 'mcp_commitment_synced' : 'mcp_commitment_created', summary: commitment.title, source: 'hermes-mcp' })
     return { commitment }
   }
   throw new Error(`Herramienta no encontrada: ${name}`)
@@ -147,8 +190,8 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
 export async function handleMcp(req: IncomingMessage, res: ServerResponse): Promise<void> {
   res.setHeader('Vary', 'Authorization')
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return }
-  const scope = authorizedScope(req)
-  if (!scope) { res.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify({ error: 'MCP no autorizado' })); return }
+  const access = authorizedScope(req)
+  if (!access) { res.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify({ error: 'MCP no autorizado' })); return }
   if (req.method === 'GET') { res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Dmente Synapse MCP'); return }
   if (req.method !== 'POST') { res.writeHead(405); res.end(); return }
   try {
@@ -163,13 +206,13 @@ export async function handleMcp(req: IncomingMessage, res: ServerResponse): Prom
     if (message.method === 'tools/list') { res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(jsonRpc(message.id, { tools: toolDefinitions }))); return }
     if (message.method === 'tools/call') {
       const name = text(message.params?.name)
-      if (scope === 'read' && !readOnlyTools.has(name)) {
+      if (access.scope === 'read' && !readOnlyTools.has(name)) {
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
         res.end(JSON.stringify(errorRpc(message.id, -32003, 'El token MCP no tiene permiso de escritura interna')))
         return
       }
       const args = (message.params?.arguments ?? {}) as Record<string, unknown>
-      const result = await callTool(name, args)
+      const result = await callTool(name, args, access)
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(jsonRpc(message.id, toolResult(result)))); return
     }
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(errorRpc(message.id, -32601, 'Método MCP no soportado')))

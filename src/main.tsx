@@ -18,7 +18,8 @@ import './styles.css'
 type ApiMessage = { id: string; direction: 'user' | 'agent'; text: string; createdAt: string }
 export type ApiRequest = { id: string; agentId: AgentId; title: string; domain: string; projectId: string | null; priority: 'low' | 'normal' | 'high' | 'urgent'; status: 'pending' | 'in_progress' | 'waiting_approval' | 'blocked' | 'done' | 'cancelled'; riskLevel: 'low' | 'medium' | 'high'; requiresApproval: boolean; approvalConfirmed: boolean; startsAt: string | null; dueAt: string | null; nextAction: string; obsidianNote?: string | null; sourcePath: string | null; sourceDriveFolder: string | null }
 export type AgendaItem = ApiRequest & { id: string; kind: 'request' | 'commitment'; requestId: string | null; commitmentId: string | null; createdAt: string; updatedAt: string; lastStatusComment?: { comment: string | null; createdAt: string } | null }
-type AuthState = { configured: boolean; authenticated: boolean; mfaRequired?: boolean; userId?: string }
+type AuthRole = 'viewer' | 'operator' | 'approver' | 'admin'
+type AuthState = { configured: boolean; authenticated: boolean; mfaRequired?: boolean; mfaEnabled?: boolean; mfaManaged?: boolean; userId?: string; role?: AuthRole; domains?: string[] }
 
 function Root() {
   const [auth, setAuth] = useState<AuthState | null>(null)
@@ -32,11 +33,12 @@ function Root() {
     setAuth({ configured: true, authenticated: false })
   }
 
-  if (auth?.configured && !auth.authenticated) return <LoginScreen mfaRequired={auth.mfaRequired} onAuthenticated={(userId) => setAuth({ configured: true, authenticated: true, userId })} />
-  return <App onLogout={logout} />
+  if (auth?.configured && !auth.authenticated) return <LoginScreen onAuthenticated={(userId, role, mfaEnabled, mfaManaged) => setAuth({ configured: true, authenticated: true, userId, role, mfaEnabled, mfaManaged })} />
+  const mfaEnrollmentRequired = auth?.authenticated === true && auth.role === 'admin' && auth.mfaEnabled !== true
+  return <App onLogout={logout} role={auth?.role} userId={auth?.userId} mfaEnabled={auth?.mfaEnabled} mfaManaged={auth?.mfaManaged} mfaEnrollmentRequired={mfaEnrollmentRequired} />
 }
 
-function App({ onLogout }: { onLogout: () => void }) {
+function App({ onLogout, role, userId, mfaEnabled, mfaManaged, mfaEnrollmentRequired }: { onLogout: () => void; role?: AuthRole; userId?: string; mfaEnabled?: boolean; mfaManaged?: boolean; mfaEnrollmentRequired: boolean }) {
   const [activeAgent, setActiveAgent] = useState<AgentId>('secretaria')
   const [messages, setMessages] = useState(initialMessages)
   const [pending, setPending] = useState<Record<AgentId, boolean>>(() => Object.keys(agents).reduce((state, id) => ({ ...state, [id]: false }), {} as Record<AgentId, boolean>))
@@ -44,7 +46,7 @@ function App({ onLogout }: { onLogout: () => void }) {
   const [requests, setRequests] = useState<ApiRequest[]>([])
   const [agendaItems, setAgendaItems] = useState<AgendaItem[]>([])
   const [draft, setDraft] = useState('')
-  const [section, setSection] = useState<Section>(() => sectionFromHash(window.location.hash))
+  const [section, setSection] = useState<Section>(() => mfaEnrollmentRequired ? 'settings' : sectionFromHash(window.location.hash))
   const [chatMinimized, setChatMinimized] = useState(false)
   const [apiReady, setApiReady] = useState(false)
   const [apiError, setApiError] = useState('')
@@ -84,6 +86,7 @@ function App({ onLogout }: { onLogout: () => void }) {
 
   useEffect(() => {
     let cancelled = false
+    if (mfaEnrollmentRequired) return () => { cancelled = true }
     async function hydrate() {
       try {
         const [agendaResponse, messagesResponse] = await Promise.all([fetch('/api/operational-agenda'), fetch(`/api/messages?agentId=${activeAgent}`)])
@@ -112,7 +115,7 @@ function App({ onLogout }: { onLogout: () => void }) {
     void hydrate()
     const interval = window.setInterval(() => { void hydrate() }, 7000)
     return () => { cancelled = true; window.clearInterval(interval) }
-  }, [activeAgent, orderedAgents])
+  }, [activeAgent, orderedAgents, mfaEnrollmentRequired])
 
   async function sendMessage() {
     const text = draft.trim()
@@ -181,7 +184,7 @@ function App({ onLogout }: { onLogout: () => void }) {
     <main className="workspace">
       {section === 'agenda' ? <AgendaErrorBoundary onClose={() => openSection('office')}><OperationalAgenda items={agendaItems} loadError={apiError} onCreate={createAgendaItem} onEdit={editAgendaItem} onDelete={deleteAgendaItem} onUpdateStatus={updateAgendaStatus} onApprove={approveAgendaItem} onClose={() => openSection('office')} /></AgendaErrorBoundary> : <>
         <OfficeStage activeAgent={activeAgent} pending={pending} processing={processing} pendingCount={pendingCount} agendaItems={agendaItems} setActiveAgent={setActiveAgent} />
-        {section === 'agents' ? <AgentsPanel setActiveAgent={setActiveAgent} close={() => openSection('office')} /> : section === 'requests' ? <RequestsErrorBoundary onClose={() => openSection('office')}><RequestsPanel requests={requests} setActiveAgent={setActiveAgent} close={() => openSection('office')} /></RequestsErrorBoundary> : section === 'settings' ? <SettingsPanel onLogout={onLogout} installed={installed} canInstall={Boolean(installPrompt)} onInstall={() => void installApp()} /> : chatMinimized ? <ChatDock agent={agent} pending={pending[activeAgent]} restore={() => setChatMinimized(false)} /> : <ChatPanel agent={agent} messages={messages[activeAgent] as Message[]} pending={pending[activeAgent]} processing={processing[activeAgent]} apiReady={apiReady} draft={draft} setDraft={setDraft} sendMessage={sendMessage} minimize={() => setChatMinimized(true)} togglePending={() => setPending((current) => ({ ...current, [activeAgent]: !current[activeAgent] }))} />}
+        {section === 'agents' ? <AgentsPanel setActiveAgent={setActiveAgent} close={() => openSection('office')} /> : section === 'requests' ? <RequestsErrorBoundary onClose={() => openSection('office')}><RequestsPanel requests={requests} setActiveAgent={setActiveAgent} close={() => openSection('office')} /></RequestsErrorBoundary> : section === 'settings' ? <SettingsPanel onLogout={onLogout} installed={installed} canInstall={Boolean(installPrompt)} onInstall={() => void installApp()} role={mfaEnrollmentRequired ? undefined : role} userId={userId} mfaEnabled={mfaEnabled} mfaManaged={mfaManaged} /> : chatMinimized ? <ChatDock agent={agent} pending={pending[activeAgent]} restore={() => setChatMinimized(false)} /> : <ChatPanel agent={agent} messages={messages[activeAgent] as Message[]} pending={pending[activeAgent]} processing={processing[activeAgent]} apiReady={apiReady} draft={draft} setDraft={setDraft} sendMessage={sendMessage} minimize={() => setChatMinimized(true)} togglePending={() => setPending((current) => ({ ...current, [activeAgent]: !current[activeAgent] }))} />}
       </>}
     </main>
     <footer className="app-footer"><img src="/assets/logo-dmente.png" alt="Dmente Digital" /><span>Desarrollado por Dmente Digital</span><a href="https://www.dmentedigital.co" target="_blank" rel="noreferrer">www.dmentedigital.co</a></footer>
