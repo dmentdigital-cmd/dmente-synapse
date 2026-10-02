@@ -9,6 +9,7 @@ const domainOptions = [
 ] as const
 type Role = 'viewer' | 'operator' | 'approver' | 'admin'
 type Account = { id: string; username: string; name: string; role: Role; domains: string[]; active: boolean; password?: string }
+type DeploymentVersion = { sourceCommit: string; branch: string }
 type Props = { onLogout: () => void; installed: boolean; canInstall: boolean; onInstall: () => void; role?: Role; userId?: string; mfaEnabled?: boolean; mfaManaged?: boolean }
 
 const roleLabels: Record<Role, string> = { viewer: 'Lector', operator: 'Operador', approver: 'Aprobador', admin: 'Administrador' }
@@ -27,6 +28,17 @@ export function SettingsPanel({ onLogout, installed, canInstall, onInstall, role
   const [currentCode, setCurrentCode] = useState('')
   const [currentPassword, setCurrentPassword] = useState('')
   const [mfaBusy, setMfaBusy] = useState(false)
+  const [deploymentVersion, setDeploymentVersion] = useState<DeploymentVersion | null>(null)
+  const [versionError, setVersionError] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/version').then(async (response) => {
+      if (!response.ok) throw new Error('Version unavailable')
+      return await response.json() as DeploymentVersion
+    }).then((data) => { if (!cancelled) { setDeploymentVersion(data); setVersionError(false) } }).catch(() => { if (!cancelled) setVersionError(true) })
+    return () => { cancelled = true }
+  }, [])
 
   async function loadAccounts() {
     const response = await fetch('/api/admin/users')
@@ -145,6 +157,11 @@ export function SettingsPanel({ onLogout, installed, canInstall, onInstall, role
         <button className="account-save" disabled={busy || account.domains.length === 0 || Boolean(account.password && account.password.length < 12)} onClick={() => void saveAccount(account)}>Guardar cambios</button>
       </article>)}</div>
     </section>}
+    <section className="deployment-version" aria-labelledby="deployment-version-title">
+      <header><div><span className="eyebrow">CONTROL DE VERSIONES</span><h3 id="deployment-version-title">Versión online</h3></div><span className={deploymentVersion?.sourceCommit && deploymentVersion.sourceCommit !== 'unknown' ? 'settings-status online' : 'settings-status'}>{deploymentVersion?.sourceCommit && deploymentVersion.sourceCommit !== 'unknown' ? 'Identificada' : 'Sin identificar'}</span></header>
+      {deploymentVersion?.sourceCommit && deploymentVersion.sourceCommit !== 'unknown' ? <dl><div><dt>Commit</dt><dd title={deploymentVersion.sourceCommit}>{deploymentVersion.sourceCommit}</dd></div><div><dt>Rama</dt><dd>{deploymentVersion.branch}</dd></div></dl> : <p>{versionError ? 'No se pudo consultar la versión del servidor.' : 'Coolify aún no está enviando el commit al contenedor.'}</p>}
+      <small>Compárala con el commit del despliegue en Coolify. Si no coincide, esta versión no está online.</small>
+    </section>
     {(error || notice) && <div className={`account-feedback${error ? ' error' : ''}`} role={error ? 'alert' : 'status'}>{error || notice}</div>}
     <div className="settings-note">Las respuestas internas están habilitadas. Correo, WhatsApp, calendarios, campañas y producción permanecen bloqueados hasta contar con aprobación y auditoría.</div>
   </section>
