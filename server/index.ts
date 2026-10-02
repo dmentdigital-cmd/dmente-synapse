@@ -10,6 +10,7 @@ import { authorizedWriteForDomain, handleMcp } from './mcp.js'
 import { getHermesStatus, isHermesConfigured, requestHermesReply } from './hermes.js'
 import { allowApiRequest, applySecurityHeaders, clientAddress, readJsonBody, sameOriginMutation } from './security.js'
 import type { Domain, UserRole } from './types.js'
+import { editAgendaRecord, removeAgendaRecord } from './agenda-mutations.js'
 
 const port = Number(process.env.PORT ?? 3010)
 const host = process.env.SYNAPSE_HOST ?? '127.0.0.1'
@@ -339,7 +340,27 @@ const server = createServer(async (req, res) => {
       addAudit({ requestId: request.id, action: approvalMatch[2] === 'approve' ? 'approval_confirmed' : 'request_cancelled', summary: request.title, source: 'manual', actorId: session.userId })
       return send(res, 200, { request })
     }
+    const agendaEditMatch = url.pathname.match(/^\/api\/operational-agenda\/items\/([^/]+)\/details$/)
+    if (req.method === 'PATCH' && agendaEditMatch) {
+      const session = requireSession(req, res, ['admin']); if (!session) return
+      const result = editAgendaRecord(decodeURIComponent(agendaEditMatch[1]), await readJsonBody(req), 'agenda-operativa', (domain) => inDomain(session, domain))
+      return send(res, 200, { item: result.kind === 'commitment' ? agendaItemFromCommitment(result.record as Parameters<typeof agendaItemFromCommitment>[0]) : agendaItemFromRequest(result.record as Parameters<typeof agendaItemFromRequest>[0]) })
+    }
+    const commitmentEditMatch = url.pathname.match(/^\/api\/commitments\/([^/]+)$/)
+    if ((req.method === 'PATCH' || req.method === 'DELETE') && commitmentEditMatch) {
+      const session = requireSession(req, res, ['admin']); if (!session) return
+      const input = await readJsonBody(req)
+      const id = decodeURIComponent(commitmentEditMatch[1])
+      const allowDomain = (domain: Domain) => inDomain(session, domain)
+      if (req.method === 'DELETE') return send(res, 200, removeAgendaRecord(id, input.expectedTitle, 'agenda-operativa', allowDomain, true))
+      return send(res, 200, { commitment: editAgendaRecord(id, input, 'agenda-operativa', allowDomain, true).record })
+    }
     const agendaStatusMatch = url.pathname.match(/^\/api\/operational-agenda\/items\/([^/]+)$/)
+    if (req.method === 'DELETE' && agendaStatusMatch) {
+      const session = requireSession(req, res, ['admin']); if (!session) return
+      const input = await readJsonBody(req)
+      return send(res, 200, removeAgendaRecord(decodeURIComponent(agendaStatusMatch[1]), input.expectedTitle, 'agenda-operativa', (domain) => inDomain(session, domain)))
+    }
     if (req.method === 'PATCH' && agendaStatusMatch) {
       const session = requireSession(req, res, ['operator', 'approver', 'admin']); if (!session) return
       const input = await readJsonBody(req)

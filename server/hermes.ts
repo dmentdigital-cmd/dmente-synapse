@@ -48,6 +48,7 @@ export async function requestHermesReply(input: HermesReplyInput): Promise<strin
     content: message.text.slice(0, 2000),
   }))
   const coordination = [
+    'Para editar o eliminar tareas internas solicitadas por Diego, consulta synapse_list_commitments o synapse_list_requests y usa synapse_update_commitment, synapse_delete_commitment, synapse_update_task o synapse_delete_task. Verifica ID y título antes del borrado; conserva la versión indicada por Diego. No registres otra tarea para ejecutar el borrado después. Confirma la eliminación solo cuando la herramienta devuelva deleted: true. Si la herramienta falla, informa el error real. La petición explícita de Diego autoriza este cambio interno y no requiere aprobación externa.',
     `Solicitud Synapse: ${input.requestId}`,
     `Agente asignado: ${input.assignedAgentId}`,
     `Dominio: ${input.domain}`,

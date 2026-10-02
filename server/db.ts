@@ -269,10 +269,60 @@ export function createCommitment(input: { title: string; domain: Domain; people?
   return commitment
 }
 
+function commitmentFromRow(row: Record<string, unknown>): Commitment {
+  return {
+    id: String(row.id), title: String(row.title), domain: row.domain as Domain, people: JSON.parse(String(row.people_json)), source: row.source as Commitment['source'],
+    startsAt: row.starts_at ? String(row.starts_at) : null, dueAt: row.due_at ? String(row.due_at) : null, status: row.status as Commitment['status'], createdAt: String(row.created_at), updatedAt: String(row.updated_at || row.created_at),
+  }
+}
+
+// Tombstones retain history and keep seeded tasks from reappearing after restart.
+for (const table of ['commitments', 'requests']) {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]
+  if (!columns.some((column) => column.name === 'deleted_at')) db.exec(`ALTER TABLE ${table} ADD COLUMN deleted_at TEXT`)
+}
+
+export function getCommitment(id: string): Commitment | null {
+  const row = db.prepare('SELECT * FROM commitments WHERE id = ? AND deleted_at IS NULL').get(id) as Record<string, unknown> | undefined
+  return row ? commitmentFromRow(row) : null
+}
+
+export function updateCommitment(id: string, patch: Partial<Commitment>): Commitment | null {
+  const current = getCommitment(id)
+  if (!current) return null
+  const next = { ...current, ...patch }
+  db.prepare('UPDATE commitments SET title = ?, domain = ?, people_json = ?, starts_at = ?, due_at = ?, status = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL')
+    .run(next.title, next.domain, JSON.stringify(next.people), next.startsAt, next.dueAt, next.status, new Date().toISOString(), id)
+  return getCommitment(id)
+}
+
+export function deleteCommitment(id: string): boolean {
+  return Number(db.prepare('UPDATE commitments SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL').run(new Date().toISOString(), new Date().toISOString(), id).changes) > 0
+}
+
+export function updateRequest(id: string, patch: Partial<RequestRecord>): RequestRecord | null {
+  const current = getRequest(id)
+  if (!current) return null
+  const next = { ...current, ...patch }
+  const changedApprovedWork = current.approvalConfirmed && Object.entries(patch).some(([key, value]) => key !== 'status' && value !== current[key as keyof RequestRecord])
+  if (changedApprovedWork || (!current.requiresApproval && next.requiresApproval)) {
+    next.approvalConfirmed = false
+    next.approvedAt = null
+    next.status = 'waiting_approval'
+  }
+  db.prepare('UPDATE requests SET title = ?, domain = ?, agent_id = ?, project_id = ?, priority = ?, risk_level = ?, next_action = ?, requires_approval = ?, approval_confirmed = ?, approved_at = ?, status = ?, starts_at = ?, due_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL')
+    .run(next.title, next.domain, next.agentId, next.projectId, next.priority, next.riskLevel, next.nextAction ?? '', Number(next.requiresApproval), Number(next.approvalConfirmed), next.approvedAt, next.status, next.startsAt, next.dueAt, new Date().toISOString(), id)
+  return getRequest(id)
+}
+
+export function deleteRequest(id: string): boolean {
+  return Number(db.prepare('UPDATE requests SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL').run(new Date().toISOString(), new Date().toISOString(), id).changes) > 0
+}
+
 export function listCommitments(domain?: Domain): Commitment[] {
   const rows = domain
-    ? db.prepare('SELECT * FROM commitments WHERE domain = ? ORDER BY COALESCE(starts_at, due_at, created_at)').all(domain)
-    : db.prepare('SELECT * FROM commitments ORDER BY COALESCE(starts_at, due_at, created_at)').all()
+    ? db.prepare('SELECT * FROM commitments WHERE domain = ? AND deleted_at IS NULL ORDER BY COALESCE(starts_at, due_at, created_at)').all(domain)
+    : db.prepare('SELECT * FROM commitments WHERE deleted_at IS NULL ORDER BY COALESCE(starts_at, due_at, created_at)').all()
   return (rows as Record<string, unknown>[]).map((row) => ({
     id: String(row.id), title: String(row.title), domain: row.domain as Domain, people: JSON.parse(String(row.people_json)), source: row.source as Commitment['source'],
     startsAt: row.starts_at ? String(row.starts_at) : null, dueAt: row.due_at ? String(row.due_at) : null, status: row.status as Commitment['status'], createdAt: String(row.created_at), updatedAt: String(row.updated_at || row.created_at),
@@ -343,13 +393,13 @@ function requestFromRow(row: Record<string, unknown>): RequestRecord {
 }
 
 export function getRequest(id: string): RequestRecord | null {
-  const row = db.prepare('SELECT * FROM requests WHERE id = ?').get(id) as Record<string, unknown> | undefined
+  const row = db.prepare('SELECT * FROM requests WHERE id = ? AND deleted_at IS NULL').get(id) as Record<string, unknown> | undefined
   if (!row) return null
   return requestFromRow(row)
 }
 
 export function listRequests(): RequestRecord[] {
-  const rows = db.prepare('SELECT * FROM requests ORDER BY created_at DESC').all() as Record<string, unknown>[]
+  const rows = db.prepare('SELECT * FROM requests WHERE deleted_at IS NULL ORDER BY created_at DESC').all() as Record<string, unknown>[]
   return rows.map(requestFromRow)
 }
 

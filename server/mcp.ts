@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { addAudit, addMessage, createCommitment, createRequest, getLocalProfile, getRequest, listAgents, listCommitments, listMessages, listPermissions, listRequests, updateRequestSources } from './db.js'
 import { readJsonBody } from './security.js'
 import type { AgentId, Domain } from './types.js'
+import { editAgendaRecord, removeAgendaRecord } from './agenda-mutations.js'
 
 const legacyMcpToken = process.env.SYNAPSE_MCP_TOKEN
 const mcpReadToken = process.env.SYNAPSE_MCP_READ_TOKEN
@@ -23,6 +24,10 @@ const writeDomains = configuredDomains('SYNAPSE_MCP_WRITE_DOMAINS')
 type JsonRpcRequest = { jsonrpc?: string; id?: string | number | null; method?: string; params?: Record<string, unknown> }
 
 const toolDefinitions = [
+  ...['commitment', 'task'].flatMap((kind) => [
+    { name: `synapse_update_${kind}`, description: 'Edita una tarea interna por ID cuando Diego lo solicita. Primero consulta la tarea. No ejecuta acciones externas ni retira aprobaciones. task acepta solicitudes y compromisos; commitment solo compromisos.', inputSchema: { type: 'object', properties: { id: { type: 'string' }, changes: { type: 'object', additionalProperties: false, properties: { title: { type: 'string', maxLength: 200 }, domain: { type: 'string' }, startsAt: { type: ['string', 'null'], description: 'Fecha ISO con zona horaria; null quita la fecha.' }, dueAt: { type: ['string', 'null'] }, status: { type: 'string' }, ...(kind === 'commitment' ? { people: { type: 'array', items: { type: 'string' } } } : { projectId: { type: ['string', 'null'] }, agentId: { type: 'string' }, priority: { type: 'string', enum: ['low', 'normal', 'high', 'urgent'] }, riskLevel: { type: 'string', enum: ['low', 'medium', 'high'] }, nextAction: { type: 'string' }, requiresApproval: { type: 'boolean' } }) } } }, required: ['id', 'changes'] } },
+    { name: `synapse_delete_${kind}`, description: 'Elimina una tarea interna de la agenda únicamente por petición explícita de Diego. Primero lista las tareas para verificar ID y título exactos. No crea una solicitud para borrar después: ejecuta el borrado y devuelve el resultado. No necesita aprobación externa. Conserva el historial interno.', inputSchema: { type: 'object', properties: { id: { type: 'string' }, expectedTitle: { type: 'string', description: 'Título exacto leído al consultar la tarea.' } }, required: ['id', 'expectedTitle'] } },
+  ]),
   { name: 'synapse_get_profile', description: 'Obtiene el perfil local y los permisos de Diego.', inputSchema: { type: 'object', properties: {} } },
   { name: 'synapse_list_agents', description: 'Lista los agentes disponibles en Dmente Synapse.', inputSchema: { type: 'object', properties: {} } },
   { name: 'synapse_list_requests', description: 'Lista las solicitudes registradas y su estado.', inputSchema: { type: 'object', properties: {} } },
@@ -68,6 +73,17 @@ function requireDomainAccess(access: McpAccess, domain: Domain): void {
 }
 
 async function callTool(name: string, args: Record<string, unknown>, access: McpAccess): Promise<unknown> {
+  if (['synapse_update_commitment', 'synapse_update_task', 'synapse_delete_commitment', 'synapse_delete_task'].includes(name)) {
+    if (access.scope !== 'write') throw new Error('El token MCP no tiene permiso de escritura interna')
+    const id = text(args.id)
+    if (!id) throw new Error('id es obligatorio')
+    const commitmentOnly = name.endsWith('_commitment')
+    const allowDomain = (domain: Domain) => access.domains.includes(domain)
+    if (name.startsWith('synapse_delete_')) return removeAgendaRecord(id, args.expectedTitle, 'hermes-mcp', allowDomain, commitmentOnly)
+    if (!args.changes || typeof args.changes !== 'object' || Array.isArray(args.changes)) throw new Error('changes debe ser un objeto')
+    const result = editAgendaRecord(id, args.changes as Record<string, unknown>, 'hermes-mcp', allowDomain, commitmentOnly)
+    return result.kind === 'commitment' ? { commitment: result.record } : { request: result.record }
+  }
   if (name === 'synapse_get_profile') return { profile: getLocalProfile(), domains: access.domains }
   if (name === 'synapse_list_agents') return { agents: listAgents().filter((agent) => access.domains.includes(agent.domain)) }
   if (name === 'synapse_list_requests') return { requests: listRequests().filter((request) => access.domains.includes(request.domain)) }

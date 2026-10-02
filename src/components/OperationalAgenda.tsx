@@ -1,12 +1,12 @@
-import { useMemo, useState, type CSSProperties, type FormEvent } from 'react'
-import { AlertTriangle, ArrowDownWideNarrow, CalendarClock, Check, CheckCheck, Circle, Clock3, ExternalLink, Filter, Plus, Save, ShieldAlert, Sparkles, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from 'react'
+import { AlertTriangle, ArrowDownWideNarrow, CalendarClock, Check, CheckCheck, Circle, Clock3, ExternalLink, Filter, Pencil, Plus, Save, ShieldAlert, Sparkles, Trash2, X } from 'lucide-react'
 import { agents } from '../agents'
 import type { AgendaItem } from '../main'
 import type { AgentId } from '../types'
 
 type NewAgendaItem = { title: string; domain: string; projectId: string; agentId: AgentId; priority: ApiPriority; riskLevel: AgendaItem['riskLevel']; requiresApproval: boolean; startsAt: string; dueAt: string; nextAction: string }
 type ApiPriority = AgendaItem['priority']
-type Props = { items: AgendaItem[]; loadError: string; onCreate: (input: Omit<NewAgendaItem, 'startsAt' | 'dueAt'> & { startsAt: string | null; dueAt: string | null }) => Promise<void>; onUpdateStatus: (id: string, status: AgendaItem['status'], comment: string) => Promise<void>; onApprove: (id: string) => Promise<void>; onClose: () => void }
+type Props = { items: AgendaItem[]; loadError: string; onCreate: (input: Omit<NewAgendaItem, 'startsAt' | 'dueAt'> & { startsAt: string | null; dueAt: string | null }) => Promise<void>; onEdit: (id: string, input: Record<string, unknown>) => Promise<void>; onDelete: (item: AgendaItem) => Promise<void>; onUpdateStatus: (id: string, status: AgendaItem['status'], comment: string) => Promise<void>; onApprove: (id: string) => Promise<void>; onClose: () => void }
 type View = 'today' | 'tomorrow' | 'week' | 'overdue' | 'calendar' | 'kanban'
 const statusLabels: Record<AgendaItem['status'], string> = { pending: 'Pendiente', in_progress: 'En progreso', waiting_approval: 'Esperando aprobación', blocked: 'Bloqueado', done: 'Hecho', cancelled: 'Cancelado' }
 const priorityLabels = { urgent: 'Urgente', high: 'Alta', normal: 'Normal', low: 'Baja' } as const
@@ -76,7 +76,15 @@ function kanbanStatus(item: AgendaItem): AgendaItem['status'] {
   return item.status
 }
 
-export function OperationalAgenda({ items, loadError, onCreate, onUpdateStatus, onApprove, onClose }: Props) {
+function localInputDate(value: string | null): string {
+  const date = validDate(value)
+  if (!date) return ''
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(date)
+  const part = (type: string) => parts.find((entry) => entry.type === type)?.value ?? ''
+  return `${part('year')}-${part('month')}-${part('day')}T${part('hour')}:${part('minute')}`
+}
+
+export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete, onUpdateStatus, onApprove, onClose }: Props) {
   const [view, setView] = useState<View>('today')
   const [domain, setDomain] = useState('all')
   const [project, setProject] = useState('all')
@@ -86,14 +94,57 @@ export function OperationalAgenda({ items, loadError, onCreate, onUpdateStatus, 
   const [approvalOnly, setApprovalOnly] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
+  const [editingItem, setEditingItem] = useState<AgendaItem | null>(null)
+  const [deleteItem, setDeleteItem] = useState<AgendaItem | null>(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
   const [statusEdit, setStatusEdit] = useState<{ item: AgendaItem; status: AgendaItem['status']; comment: string } | null>(null)
   const [statusBusy, setStatusBusy] = useState(false)
   const [createBusy, setCreateBusy] = useState(false)
   const [newItem, setNewItem] = useState<NewAgendaItem>({ title: '', domain: 'projects', projectId: '', agentId: 'pmo', priority: 'normal', riskLevel: 'low', requiresApproval: false, startsAt: '', dueAt: '', nextAction: '' })
   const [error, setError] = useState('')
+  const modalBusy = useRef(false)
+  modalBusy.current = createBusy || deleteBusy || statusBusy
   const today = dateKey(new Date())
   const tomorrow = shiftDay(today, 1)
   const weekEnd = shiftDay(today, 6)
+
+  useEffect(() => {
+    if (!createOpen && !deleteItem && !statusEdit) return
+    const previousFocus = document.activeElement as HTMLElement | null
+    const dialog = document.querySelector<HTMLElement>('.agenda-modal-backdrop [role="dialog"], .agenda-modal-backdrop [role="alertdialog"]')
+    const controls = () => Array.from(dialog?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)') ?? [])
+    controls().find((control) => control.hasAttribute('autofocus'))?.focus()
+    if (!dialog?.contains(document.activeElement)) controls()[0]?.focus()
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !modalBusy.current) { setCreateOpen(false); setEditingItem(null); setDeleteItem(null); setStatusEdit(null) }
+      if (event.key !== 'Tab') return
+      const list = controls()
+      if (!list.length) { event.preventDefault(); dialog?.focus(); return }
+      const first = list[0], last = list[list.length - 1]
+      if (!list.includes(document.activeElement as HTMLElement)) { event.preventDefault(); (event.shiftKey ? last : first)?.focus() }
+      else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('keydown', onKey); if (previousFocus?.isConnected) previousFocus.focus(); else document.querySelector<HTMLButtonElement>('.agenda-new-task')?.focus() }
+  }, [createOpen, Boolean(deleteItem), Boolean(statusEdit)])
+
+  function openEditor(item: AgendaItem | null) {
+    setError('')
+    setEditingItem(item)
+    setNewItem(item ? { title: item.title, domain: item.domain, projectId: item.projectId ?? '', agentId: item.agentId, priority: item.priority, riskLevel: item.riskLevel, requiresApproval: item.requiresApproval, startsAt: localInputDate(item.startsAt), dueAt: localInputDate(item.dueAt), nextAction: item.nextAction } : { title: '', domain: 'projects', projectId: '', agentId: 'pmo', priority: 'normal', riskLevel: 'low', requiresApproval: false, startsAt: '', dueAt: '', nextAction: '' })
+    setCreateOpen(true)
+  }
+
+  async function confirmDelete(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!deleteItem) return
+    setDeleteBusy(true)
+    setError('')
+    try { await onDelete(deleteItem); setDeleteItem(null) }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo eliminar la tarea') }
+    finally { setDeleteBusy(false) }
+  }
 
   const counts = useMemo(() => ({
     today: items.filter((item) => itemDay(item) === today && item.status !== 'done' && item.status !== 'cancelled').length,
@@ -137,9 +188,20 @@ export function OperationalAgenda({ items, loadError, onCreate, onUpdateStatus, 
     const formData = new FormData(event.currentTarget)
     const toBogotaIso = (value: string) => value ? new Date(`${value}:00-05:00`).toISOString() : null
     try {
-      await onCreate({ ...newItem, projectId: newItem.projectId.trim(), nextAction: newItem.nextAction.trim(), startsAt: toBogotaIso(String(formData.get('startsAt') ?? '')), dueAt: toBogotaIso(String(formData.get('dueAt') ?? '')) })
+      const input = { ...newItem, projectId: newItem.projectId.trim(), nextAction: newItem.nextAction.trim(), startsAt: toBogotaIso(String(formData.get('startsAt') ?? '')), dueAt: toBogotaIso(String(formData.get('dueAt') ?? '')) }
+      if (editingItem) {
+        const fields = editingItem.kind === 'commitment' ? ['title', 'domain', 'startsAt', 'dueAt'] : Object.keys(input)
+        const changes = Object.fromEntries(fields.flatMap((key) => {
+          if (key === 'startsAt' || key === 'dueAt') return newItem[key] === localInputDate(editingItem[key]) ? [] : [[key, input[key]]]
+          const value = input[key as keyof typeof input]
+          const original = editingItem[key as keyof AgendaItem]
+          return (value === original || (key === 'projectId' && !value && !original)) ? [] : [[key, value]]
+        }))
+        if (Object.keys(changes).length) await onEdit(editingItem.id, changes)
+      } else await onCreate(input)
       setNewItem({ title: '', domain: 'projects', projectId: '', agentId: 'pmo', priority: 'normal', riskLevel: 'low', requiresApproval: false, startsAt: '', dueAt: '', nextAction: '' })
       setCreateOpen(false)
+      setEditingItem(null)
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo crear la tarea') }
     finally { setCreateBusy(false) }
   }
@@ -172,6 +234,8 @@ export function OperationalAgenda({ items, loadError, onCreate, onUpdateStatus, 
       {item.lastStatusComment?.comment && <p className="agenda-status-comment"><b>Comentario del cambio:</b> {item.lastStatusComment.comment}</p>}
       {item.sourcePath && <div className="agenda-source"><ExternalLink size={12} />{item.sourcePath.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? 'Referencia del proyecto'}</div>}
       <div className="agenda-task-footer"><span className={`agenda-status ${item.status}`}><Circle size={8} fill="currentColor" />{statusLabels[item.status] ?? item.status}</span><div className="agenda-task-actions">
+        <button className="agenda-edit-task" disabled={busyId === item.id} aria-label={`Editar ${item.title}`} onClick={() => openEditor(item)}><Pencil size={14} />Editar</button>
+        <button className="agenda-delete-task" disabled={busyId === item.id} aria-label={`Eliminar ${item.title}`} onClick={() => { setError(''); setDeleteItem(item) }}><Trash2 size={14} />Eliminar</button>
         {item.requiresApproval && !item.approvalConfirmed && <button className="agenda-approve" disabled={busyId === item.id} onClick={() => void runAction(item.id, () => onApprove(item.id))}><ShieldAlert size={14} />Aprobar</button>}
         <label className="agenda-status-control"><ArrowDownWideNarrow size={13} /><select aria-label={`Cambiar estado de ${item.title}`} value={item.status} disabled={busyId === item.id} onChange={(event) => { const nextStatus = event.target.value as AgendaItem['status']; if (nextStatus !== item.status) setStatusEdit({ item, status: nextStatus, comment: '' }) }}>
           {(['pending', 'in_progress', 'waiting_approval', 'blocked', 'done', 'cancelled'] as AgendaItem['status'][]).map((next) => <option key={next} value={next} disabled={next === 'done' && item.requiresApproval && !item.approvalConfirmed}>{statusLabels[next]}</option>)}
@@ -185,7 +249,7 @@ export function OperationalAgenda({ items, loadError, onCreate, onUpdateStatus, 
   return <section className="operational-agenda" aria-label="Agenda Operativa">
     <header className="agenda-hero"><div><span className="eyebrow">DMENTE SYNAPSE · CENTRO DE MANDO</span><h1>Agenda <em>Operativa</em></h1><p>El siguiente movimiento de cada proyecto, en un solo lugar.</p></div><div className="agenda-hero-stats"><div className="agenda-stat"><strong>{counts.today}</strong><span>para hoy</span></div><div className="agenda-stat"><strong>{counts.tomorrow}</strong><span>mañana</span></div><button className={`agenda-stat approval-stat ${approvalOnly ? 'selected' : ''}`} onClick={() => { setApprovalOnly((current) => !current); setView('week') }}><strong>{counts.approvals}</strong><span>por aprobar</span></button></div></header>
     <div className="agenda-ribbon"><span className="agenda-ribbon-mark"><CheckCheck size={18} /></span><div><strong>Primero lo que necesita tu atención</strong><span>{counts.overdue ? `${counts.overdue} tareas atrasadas · ` : ''}{counts.approvals ? `${counts.approvals} esperando tu aprobación` : 'No hay aprobaciones pendientes'}</span></div><span className="agenda-date-label">{new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())}</span></div>
-    <div className="agenda-toolbar"><div className="agenda-view-tabs" role="tablist" aria-label="Vistas de agenda">{viewOptions.map((option) => <button key={option.id} role="tab" aria-selected={view === option.id} className={view === option.id ? 'active' : ''} onClick={() => setView(option.id)}>{option.label}</button>)}</div><div className="agenda-toolbar-actions"><button className="agenda-new-task" onClick={() => setCreateOpen(true)}><Plus size={15} />Nueva tarea</button><button className="agenda-close" onClick={onClose}><Check size={15} />Volver a oficina</button></div></div>
+    <div className="agenda-toolbar"><div className="agenda-view-tabs" role="tablist" aria-label="Vistas de agenda">{viewOptions.map((option) => <button key={option.id} role="tab" aria-selected={view === option.id} className={view === option.id ? 'active' : ''} onClick={() => setView(option.id)}>{option.label}</button>)}</div><div className="agenda-toolbar-actions"><button className="agenda-new-task" onClick={() => openEditor(null)}><Plus size={15} />Nueva tarea</button><button className="agenda-close" onClick={onClose}><Check size={15} />Volver a oficina</button></div></div>
     <div className="agenda-filters"><span className="filters-label"><Filter size={14} />Filtrar</span>
       <select aria-label="Filtrar por dominio" value={domain} onChange={(event) => setDomain(event.target.value)}><option value="all">Todos los dominios</option>{domains.map((item) => <option key={item} value={item}>{domainLabels[item] ?? item}</option>)}</select>
       <select aria-label="Filtrar por proyecto" value={project} onChange={(event) => setProject(event.target.value)}><option value="all">Todos los proyectos</option>{projects.map((item) => <option key={item} value={item}>{item}</option>)}</select>
@@ -194,7 +258,13 @@ export function OperationalAgenda({ items, loadError, onCreate, onUpdateStatus, 
       <select aria-label="Filtrar por estado" value={status} onChange={(event) => setStatus(event.target.value)}><option value="active">Estados activos</option><option value="all">Todos los estados</option>{Object.entries(statusLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
     </div>
     {(error || loadError) && <div className="agenda-error" role="alert"><AlertTriangle size={15} />{error || loadError}</div>}
-    {statusEdit && <div className="agenda-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !statusBusy) setStatusEdit(null) }}><form className="agenda-create-form status-comment-modal" role="dialog" aria-modal="true" aria-labelledby="status-comment-title" onSubmit={(event) => void saveStatusChange(event)}>
+    {deleteItem && <div className="agenda-modal-backdrop"><form tabIndex={-1} className="agenda-create-form status-comment-modal" role="alertdialog" aria-modal="true" aria-labelledby="agenda-delete-title" onSubmit={(event) => void confirmDelete(event)}>
+      <header><h2 id="agenda-delete-title">Eliminar tarea</h2><button type="button" aria-label="Cerrar" disabled={deleteBusy} onClick={() => setDeleteItem(null)}><X size={18} /></button></header>
+      <p className="status-comment-task">{deleteItem.title}</p><p className="status-comment-hint">Se quitará de la agenda. Su historial interno quedará conservado.</p>
+      {error && <div className="agenda-error" role="alert">{error}</div>}
+      <footer><button type="button" autoFocus className="agenda-close" disabled={deleteBusy} onClick={() => setDeleteItem(null)}>Cancelar</button><button type="submit" className="agenda-delete-task" disabled={deleteBusy}><Trash2 size={15} />{deleteBusy ? 'Eliminando…' : 'Eliminar tarea'}</button></footer>
+    </form></div>}
+    {statusEdit && <div className="agenda-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !statusBusy) setStatusEdit(null) }}><form tabIndex={-1} className="agenda-create-form status-comment-modal" role="dialog" aria-modal="true" aria-labelledby="status-comment-title" onSubmit={(event) => void saveStatusChange(event)}>
       <header><div><span className="eyebrow">ACTUALIZACIÓN DE AGENDA</span><h2 id="status-comment-title">Cambiar a {statusLabels[statusEdit.status]}</h2></div><button type="button" aria-label="Cerrar" disabled={statusBusy} onClick={() => setStatusEdit(null)}><X size={17} /></button></header>
       <p className="status-comment-task">{statusEdit.item.title}</p>
       <label className="agenda-field">Comentario <span className="field-optional">Opcional</span><textarea autoFocus maxLength={2000} rows={4} placeholder="Deja contexto sobre este cambio…" value={statusEdit.comment} onChange={(event) => setStatusEdit({ ...statusEdit, comment: event.target.value })} /></label>
@@ -212,22 +282,22 @@ export function OperationalAgenda({ items, loadError, onCreate, onUpdateStatus, 
       })}</div> : filteredItems.length ? <div className="agenda-list">{filteredItems.map((item) => renderCard(item))}</div> : <div className="agenda-empty"><span><CheckCheck size={23} /></span><strong>Agenda despejada</strong><p>No hay tareas en esta vista con los filtros actuales.</p><button onClick={() => { setView('week'); setDomain('all'); setProject('all'); setAgent('all'); setPriority('all'); setStatus('active'); setApprovalOnly(false) }}>Ver semana completa</button></div>}
     </div>
     <footer className="agenda-footer"><span><ShieldAlert size={13} />Las acciones externas siguen sujetas a aprobación registrada.</span><span><Clock3 size={13} />Hora Colombia</span></footer>
-    {createOpen && <div className="agenda-modal-backdrop"><form className="agenda-create-form" role="dialog" aria-modal="true" aria-labelledby="agenda-create-title" onSubmit={(event) => void createTask(event)}>
-      <header><div><span className="eyebrow">NUEVO PENDIENTE</span><h2 id="agenda-create-title">Agregar a la agenda</h2></div><button type="button" className="icon-button" aria-label="Cerrar" onClick={() => setCreateOpen(false)}><X size={18} /></button></header>
+    {createOpen && <div className="agenda-modal-backdrop"><form tabIndex={-1} className="agenda-create-form" role="dialog" aria-modal="true" aria-labelledby="agenda-create-title" onSubmit={(event) => void createTask(event)}>
+      <header><h2 id="agenda-create-title">{editingItem ? 'Editar tarea' : 'Agregar a la agenda'}</h2><button type="button" className="icon-button" aria-label="Cerrar" disabled={createBusy} onClick={() => setCreateOpen(false)}><X size={18} /></button></header>
       <label className="agenda-field agenda-field-wide">Título<input autoFocus required maxLength={200} value={newItem.title} onChange={(event) => setNewItem({ ...newItem, title: event.target.value })} placeholder="¿Qué hay que hacer?" /></label>
       <div className="agenda-form-grid">
         <label className="agenda-field">Dominio<select value={newItem.domain} onChange={(event) => setNewItem({ ...newItem, domain: event.target.value })}>{Object.entries(domainLabels).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
-        <label className="agenda-field">Responsable<select value={newItem.agentId} onChange={(event) => setNewItem({ ...newItem, agentId: event.target.value as AgentId })}>{(Object.entries(agents) as [AgentId, typeof agents[AgentId]][]).map(([id, item]) => <option key={id} value={id}>{item.name}</option>)}</select></label>
-        <label className="agenda-field">Prioridad<select value={newItem.priority} onChange={(event) => setNewItem({ ...newItem, priority: event.target.value as ApiPriority })}>{Object.entries(priorityLabels).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
-        <label className="agenda-field">Riesgo<select value={newItem.riskLevel} onChange={(event) => setNewItem({ ...newItem, riskLevel: event.target.value as AgendaItem['riskLevel'] })}><option value="low">Bajo</option><option value="medium">Medio</option><option value="high">Alto</option></select></label>
+        {editingItem?.kind !== 'commitment' && <label className="agenda-field">Responsable<select value={newItem.agentId} onChange={(event) => setNewItem({ ...newItem, agentId: event.target.value as AgentId })}>{(Object.entries(agents) as [AgentId, typeof agents[AgentId]][]).map(([id, item]) => <option key={id} value={id}>{item.name}</option>)}</select></label>}
+        {editingItem?.kind !== 'commitment' && <><label className="agenda-field">Prioridad<select value={newItem.priority} onChange={(event) => setNewItem({ ...newItem, priority: event.target.value as ApiPriority })}>{Object.entries(priorityLabels).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
+        <label className="agenda-field">Riesgo<select value={newItem.riskLevel} onChange={(event) => setNewItem({ ...newItem, riskLevel: event.target.value as AgendaItem['riskLevel'] })}><option value="low">Bajo</option><option value="medium">Medio</option><option value="high">Alto</option></select></label></>}
         <label className="agenda-field">Inicia<input name="startsAt" type="datetime-local" value={newItem.startsAt} onChange={(event) => setNewItem({ ...newItem, startsAt: event.target.value })} /></label>
         <label className="agenda-field">Vence<input name="dueAt" type="datetime-local" value={newItem.dueAt} onChange={(event) => setNewItem({ ...newItem, dueAt: event.target.value })} /></label>
-        <label className="agenda-field agenda-field-wide">Proyecto<input maxLength={120} value={newItem.projectId} onChange={(event) => setNewItem({ ...newItem, projectId: event.target.value })} placeholder="ID del proyecto (opcional)" /></label>
-        <label className="agenda-field agenda-field-wide">Siguiente acción<textarea rows={2} value={newItem.nextAction} onChange={(event) => setNewItem({ ...newItem, nextAction: event.target.value })} placeholder="Primer paso concreto (opcional)" /></label>
+        {editingItem?.kind !== 'commitment' && <><label className="agenda-field agenda-field-wide">Proyecto<input maxLength={120} value={newItem.projectId} onChange={(event) => setNewItem({ ...newItem, projectId: event.target.value })} placeholder="ID del proyecto (opcional)" /></label>
+        <label className="agenda-field agenda-field-wide">Siguiente acción<textarea maxLength={2000} rows={2} value={newItem.nextAction} onChange={(event) => setNewItem({ ...newItem, nextAction: event.target.value })} placeholder="Primer paso concreto (opcional)" /></label></>}
       </div>
-      <label className="agenda-approval-toggle"><input type="checkbox" checked={newItem.requiresApproval} onChange={(event) => setNewItem({ ...newItem, requiresApproval: event.target.checked })} /><span><strong>Requiere aprobación de Diego</strong><small>La tarea quedará en espera y no podrá marcarse como hecha hasta aprobarla.</small></span></label>
+      {editingItem?.kind !== 'commitment' && <label className="agenda-approval-toggle"><input type="checkbox" disabled={editingItem?.requiresApproval} checked={newItem.requiresApproval} onChange={(event) => setNewItem({ ...newItem, requiresApproval: event.target.checked })} /><span><strong>Requiere aprobación de Diego</strong><small>La tarea quedará en espera hasta aprobarla. Editar una tarea aprobada requiere revisarla de nuevo.</small></span></label>}
       {error && <div className="agenda-error" role="alert"><AlertTriangle size={15} />{error}</div>}
-      <footer><button type="button" className="agenda-cancel-create" onClick={() => setCreateOpen(false)}>Cancelar</button><button type="submit" className="agenda-save-create" disabled={createBusy}><Save size={15} />{createBusy ? 'Guardando…' : 'Guardar tarea'}</button></footer>
+      <footer><button type="button" className="agenda-cancel-create" disabled={createBusy} onClick={() => setCreateOpen(false)}>Cancelar</button><button type="submit" className="agenda-save-create" disabled={createBusy}><Save size={15} />{createBusy ? 'Guardando…' : editingItem ? 'Guardar cambios' : 'Guardar tarea'}</button></footer>
     </form></div>}
   </section>
 }
