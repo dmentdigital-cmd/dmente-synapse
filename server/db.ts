@@ -55,6 +55,7 @@ db.exec(`
     status TEXT NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
+    ,external_id TEXT UNIQUE
   );
   CREATE TABLE IF NOT EXISTS requests (
     id TEXT PRIMARY KEY,
@@ -142,6 +143,7 @@ db.exec(`
 
 const commitmentColumns = new Set((db.prepare('PRAGMA table_info(commitments)').all() as { name: string }[]).map((column) => column.name))
 if (!commitmentColumns.has('updated_at')) db.exec("ALTER TABLE commitments ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''")
+if (!commitmentColumns.has('external_id')) db.exec('ALTER TABLE commitments ADD COLUMN external_id TEXT')
 
 const requestColumns = new Set((db.prepare('PRAGMA table_info(requests)').all() as { name: string }[]).map((column) => column.name))
 if (!requestColumns.has('project_id')) db.exec('ALTER TABLE requests ADD COLUMN project_id TEXT')
@@ -259,19 +261,31 @@ export function listPermissions(profileId = localProfile.id): Permission[] {
   return rows.map((row) => ({ profileId: String(row.profile_id), domain: row.domain as Domain, canRead: Boolean(row.can_read), canWrite: Boolean(row.can_write), requiresApproval: Boolean(row.requires_approval) }))
 }
 
-export function createCommitment(input: { title: string; domain: Domain; people?: string[]; source?: Commitment['source']; startsAt?: string | null; dueAt?: string | null }): Commitment {
+export function createCommitment(input: { title: string; domain: Domain; people?: string[]; source?: Commitment['source']; startsAt?: string | null; dueAt?: string | null; externalId?: string | null }): Commitment {
+  const externalId = input.externalId?.trim() || null
+  if (externalId && externalId.length > 200) throw new Error('externalId excede el máximo de 200 caracteres')
+  if (externalId) {
+    const now = new Date().toISOString()
+    db.prepare(`INSERT INTO commitments (id, title, domain, people_json, source, starts_at, due_at, status, created_at, updated_at, external_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'captured', ?, ?, ?)
+      ON CONFLICT(external_id) DO UPDATE SET title = excluded.title, domain = excluded.domain, people_json = excluded.people_json,
+      source = excluded.source, starts_at = excluded.starts_at, due_at = excluded.due_at, updated_at = excluded.updated_at, deleted_at = NULL`)
+      .run(randomUUID(), input.title.trim(), input.domain, JSON.stringify(input.people ?? []), input.source ?? 'manual', input.startsAt ?? null, input.dueAt ?? null, now, now, externalId)
+    const row = db.prepare('SELECT * FROM commitments WHERE external_id = ? AND deleted_at IS NULL').get(externalId) as Record<string, unknown>
+    return commitmentFromRow(row)
+  }
   const commitment: Commitment = {
     id: randomUUID(), title: input.title.trim(), domain: input.domain, people: input.people ?? [], source: input.source ?? 'manual',
-    startsAt: input.startsAt ?? null, dueAt: input.dueAt ?? null, status: 'captured', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    startsAt: input.startsAt ?? null, dueAt: input.dueAt ?? null, status: 'captured', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), externalId: null,
   }
-  db.prepare('INSERT INTO commitments (id, title, domain, people_json, source, starts_at, due_at, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+  db.prepare('INSERT INTO commitments (id, title, domain, people_json, source, starts_at, due_at, status, created_at, updated_at, external_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)')
     .run(commitment.id, commitment.title, commitment.domain, JSON.stringify(commitment.people), commitment.source, commitment.startsAt, commitment.dueAt, commitment.status, commitment.createdAt, commitment.updatedAt)
   return commitment
 }
 
 function commitmentFromRow(row: Record<string, unknown>): Commitment {
   return {
-    id: String(row.id), title: String(row.title), domain: row.domain as Domain, people: JSON.parse(String(row.people_json)), source: row.source as Commitment['source'],
+    id: String(row.id), title: String(row.title), domain: row.domain as Domain, people: JSON.parse(String(row.people_json)), source: row.source as Commitment['source'], externalId: row.external_id ? String(row.external_id) : null,
     startsAt: row.starts_at ? String(row.starts_at) : null, dueAt: row.due_at ? String(row.due_at) : null, status: row.status as Commitment['status'], createdAt: String(row.created_at), updatedAt: String(row.updated_at || row.created_at),
   }
 }
@@ -324,7 +338,7 @@ export function listCommitments(domain?: Domain): Commitment[] {
     ? db.prepare('SELECT * FROM commitments WHERE domain = ? AND deleted_at IS NULL ORDER BY COALESCE(starts_at, due_at, created_at)').all(domain)
     : db.prepare('SELECT * FROM commitments WHERE deleted_at IS NULL ORDER BY COALESCE(starts_at, due_at, created_at)').all()
   return (rows as Record<string, unknown>[]).map((row) => ({
-    id: String(row.id), title: String(row.title), domain: row.domain as Domain, people: JSON.parse(String(row.people_json)), source: row.source as Commitment['source'],
+    id: String(row.id), title: String(row.title), domain: row.domain as Domain, people: JSON.parse(String(row.people_json)), source: row.source as Commitment['source'], externalId: row.external_id ? String(row.external_id) : null,
     startsAt: row.starts_at ? String(row.starts_at) : null, dueAt: row.due_at ? String(row.due_at) : null, status: row.status as Commitment['status'], createdAt: String(row.created_at), updatedAt: String(row.updated_at || row.created_at),
   }))
 }

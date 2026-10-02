@@ -47,7 +47,8 @@ export type Commitment = {
   title: string
   domain: Domain
   people: string[]
-  source: 'manual' | 'calendar' | 'whatsapp' | 'email' | 'note'
+  source: 'manual' | 'calendar' | 'whatsapp' | 'email' | 'note' | 'cronjob'
+  externalId?: string | null
   startsAt: string | null
   dueAt: string | null
   status: 'captured' | 'planned' | 'confirmed' | 'pending' | 'in_progress' | 'waiting_approval' | 'blocked' | 'done' | 'cancelled'

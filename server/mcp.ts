@@ -37,7 +37,7 @@ const toolDefinitions = [
   { name: 'synapse_update_request_sources', description: 'Agrega o actualiza en una solicitud las referencias a Obsidian, estado canónico local o carpeta de Drive.', inputSchema: { type: 'object', properties: { requestId: { type: 'string' }, obsidianNote: { type: 'string' }, sourcePath: { type: 'string' }, sourceDriveFolder: { type: 'string' } }, required: ['requestId'] } },
   { name: 'synapse_add_message', description: 'Agrega un mensaje de Hermes o LuciaBot a la conversación.', inputSchema: { type: 'object', properties: { agentId: { type: 'string' }, text: { type: 'string' }, requestId: { type: 'string' } }, required: ['agentId', 'text'] } },
   { name: 'synapse_list_commitments', description: 'Lista compromisos personales, familiares y de agencia.', inputSchema: { type: 'object', properties: { domain: { type: 'string' } } } },
-  { name: 'synapse_create_commitment', description: 'Registra un compromiso. No envía mensajes ni crea eventos externos.', inputSchema: { type: 'object', properties: { title: { type: 'string' }, domain: { type: 'string' }, people: { type: 'array', items: { type: 'string' } }, startsAt: { type: 'string' }, dueAt: { type: 'string' } }, required: ['title', 'domain'] } },
+  { name: 'synapse_create_commitment', description: 'Registra o sincroniza de forma idempotente un compromiso (por ejemplo, desde un cronjob). No envía mensajes ni crea eventos externos.', inputSchema: { type: 'object', properties: { title: { type: 'string' }, domain: { type: 'string' }, people: { type: 'array', items: { type: 'string' } }, startsAt: { type: 'string' }, dueAt: { type: 'string' }, externalId: { type: 'string', description: 'ID estable del evento externo para actualizarlo sin duplicarlo al reintentar.' } }, required: ['title', 'domain'] } },
 ]
 
 function digest(value: string): Buffer { return createHash('sha256').update(value).digest() }
@@ -178,8 +178,10 @@ async function callTool(name: string, args: Record<string, unknown>, access: Mcp
     if ((startsAtValue && (!startsAt || Number.isNaN(startsAt.getTime()))) || (dueAtValue && (!dueAt || Number.isNaN(dueAt.getTime())))) throw new Error('Fechas del compromiso no válidas')
     if (startsAt && dueAt && startsAt.getTime() > dueAt.getTime()) throw new Error('La fecha de vencimiento debe ser posterior al inicio')
     const people = Array.isArray(args.people) ? args.people.filter((item): item is string => typeof item === 'string').slice(0, 20).map((person) => person.trim().slice(0, 120)).filter(Boolean) : []
-    const commitment = createCommitment({ title, domain, people, source: 'manual', startsAt: startsAt?.toISOString() ?? null, dueAt: dueAt?.toISOString() ?? null })
-    addAudit({ action: 'mcp_commitment_created', summary: commitment.title, source: 'hermes-mcp' })
+    const externalId = text(args.externalId)
+    if (externalId.length > 200) throw new Error('externalId excede el máximo de 200 caracteres')
+    const commitment = createCommitment({ title, domain, people, source: externalId ? 'cronjob' : 'manual', startsAt: startsAt?.toISOString() ?? null, dueAt: dueAt?.toISOString() ?? null, externalId: externalId || null })
+    addAudit({ action: externalId ? 'mcp_commitment_synced' : 'mcp_commitment_created', summary: commitment.title, source: 'hermes-mcp' })
     return { commitment }
   }
   throw new Error(`Herramienta no encontrada: ${name}`)

@@ -82,6 +82,17 @@ test('Lucia MCP can edit/delete commitments with write scope, exact title and pe
   assert.ok((await mcp('synapse_delete_task', { id: privateTask.id, expectedTitle: privateTask.title })).error)
 })
 
+test('Hermes cronjob sync updates one agenda commitment by external job ID without duplicates', async () => {
+  const payload = { title: 'Día de la Sonrisa de Lucía', domain: 'agency', startsAt: '2026-10-02T07:30:00-05:00', dueAt: '2026-10-02T14:30:00-05:00', externalId: 'hermes-cron:b485a638267c' }
+  const first = await mcp('synapse_create_commitment', payload)
+  assert.equal(first.result.structuredContent.commitment.source, 'cronjob')
+  const second = await mcp('synapse_create_commitment', { ...payload, title: 'Día de la Sonrisa Lucía, ropa amarilla o blanca' })
+  assert.equal(second.result.structuredContent.commitment.id, first.result.structuredContent.commitment.id)
+  assert.equal(second.result.structuredContent.commitment.title, 'Día de la Sonrisa Lucía, ropa amarilla o blanca')
+  const listed = await mcp('synapse_list_commitments', { domain: 'agency' })
+  assert.equal(listed.result.structuredContent.commitments.filter((item: { externalId?: string }) => item.externalId === payload.externalId).length, 1)
+})
+
 test('editing tasks preserves approval and deleted seeded tasks do not reappear', async () => {
   const task = (await api('/api/operational-agenda/items', 'POST', { title: 'Approval fixture', domain: 'technology', agentId: 'tecnico', requiresApproval: true })).data.item
   const route = `/api/operational-agenda/items/${task.id}`
