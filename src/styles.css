@@ -184,3 +184,11 @@ button { cursor: pointer; }
 .agenda-task-actions { flex-wrap: wrap; }
 .agenda-edit-task:focus-visible, .agenda-delete-task:focus-visible { outline: 2px solid #24dfcd; outline-offset: 3px; }
 @media (max-width: 600px) { .agenda-task-footer { flex-wrap: wrap; gap: 10px; } .agenda-task-actions { width: 100%; } .agenda-edit-task, .agenda-delete-task { min-height: 44px; } }
+.deployment-version { margin: 2px 14px 15px; padding: 12px; border: 1px solid rgba(43,235,210,.2); border-radius: 11px; background: rgba(43,235,210,.035); }
+.deployment-version > header { display: flex; align-items: end; justify-content: space-between; gap: 10px; }
+.deployment-version h3 { margin: 3px 0 0; color: var(--ink); font-size: 14px; }
+.deployment-version dl { display: grid; gap: 6px; margin: 10px 0 6px; }
+.deployment-version dl div { display: grid; grid-template-columns: 58px minmax(0,1fr); gap: 8px; font-size: 10px; }
+.deployment-version dt { color: rgba(248,250,252,.5); }
+.deployment-version dd { margin: 0; color: var(--teal); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; user-select: all; }
+.deployment-version p, .deployment-version small { display: block; margin: 8px 0 0; color: rgba(248,250,252,.58); font-size: 9px; line-height: 1.45; }

@@ -7,10 +7,12 @@ RUN npm run build
 
 FROM node:24-bookworm-slim AS runtime
 WORKDIR /app
+ARG SOURCE_COMMIT=unknown
 ENV NODE_ENV=production
 ENV PORT=3010
 ENV SYNAPSE_HOST=0.0.0.0
 ENV SYNAPSE_DATA_DIR=/app/data
+ENV SOURCE_COMMIT=${SOURCE_COMMIT}
 COPY package*.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist

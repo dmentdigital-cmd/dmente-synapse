@@ -110,6 +110,11 @@ const server = createServer(async (req, res) => {
     if ((url.pathname.startsWith('/api/') || url.pathname === '/mcp') && !allowApiRequest(req)) return send(res, 429, { error: 'Demasiadas solicitudes. Intenta de nuevo en un minuto.' })
     if (url.pathname.startsWith('/api/') && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method ?? '') && !sameOriginMutation(req)) return send(res, 403, { error: 'Origen de solicitud no permitido.' })
     if (url.pathname === '/mcp') return handleMcp(req, res)
+    if (req.method === 'GET' && url.pathname === '/api/version') {
+      const sourceCommit = text(process.env.SOURCE_COMMIT) || 'unknown'
+      const branch = text(process.env.COOLIFY_BRANCH) || 'unknown'
+      return send(res, 200, { service: 'dmente-synapse', sourceCommit, branch })
+    }
     if (req.method === 'GET' && url.pathname === '/api/health') {
       if (!sessionFromRequest(req)) return send(res, 200, { ok: true, service: 'dmente-synapse-api' })
       if (!requireSession(req, res)) return
