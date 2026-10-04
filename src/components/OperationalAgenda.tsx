@@ -6,6 +6,8 @@ import type { AgentId } from '../types'
 
 type NewAgendaItem = { title: string; domain: string; projectId: string; agentId: AgentId; priority: ApiPriority; riskLevel: AgendaItem['riskLevel']; requiresApproval: boolean; startsAt: string; dueAt: string; nextAction: string }
 type ApiPriority = AgendaItem['priority']
+type RescheduleMode = 'both' | 'start' | 'due'
+type RescheduleEdit = { item: AgendaItem; day: string; mode: RescheduleMode; busy: boolean }
 type Props = { items: AgendaItem[]; loadError: string; onCreate: (input: Omit<NewAgendaItem, 'startsAt' | 'dueAt'> & { startsAt: string | null; dueAt: string | null }) => Promise<void>; onEdit: (id: string, input: Record<string, unknown>) => Promise<void>; onDelete: (item: AgendaItem) => Promise<void>; onUpdateStatus: (id: string, status: AgendaItem['status'], comment: string) => Promise<void>; onApprove: (id: string) => Promise<void>; onClose: () => void }
 type View = 'today' | 'tomorrow' | 'week' | 'overdue' | 'calendar' | 'kanban'
 const statusLabels: Record<AgendaItem['status'], string> = { pending: 'Pendiente', in_progress: 'En progreso', waiting_approval: 'Esperando aprobación', blocked: 'Bloqueado', done: 'Hecho', cancelled: 'Cancelado' }
@@ -84,6 +86,18 @@ function localInputDate(value: string | null): string {
   return `${part('year')}-${part('month')}-${part('day')}T${part('hour')}:${part('minute')}`
 }
 
+function localInputTime(value: string | null, fallback = '09:00'): string {
+  const date = validDate(value)
+  if (!date) return fallback
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Bogota', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(date)
+  const part = (type: string) => parts.find((entry) => entry.type === type)?.value ?? ''
+  return `${part('hour')}:${part('minute')}` || fallback
+}
+
+function bogotaIso(day: string, time: string): string {
+  return new Date(`${day}T${time}:00-05:00`).toISOString()
+}
+
 export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete, onUpdateStatus, onApprove, onClose }: Props) {
   const [view, setView] = useState<View>('today')
   const [domain, setDomain] = useState('all')
@@ -98,25 +112,26 @@ export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete
   const [deleteItem, setDeleteItem] = useState<AgendaItem | null>(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [statusEdit, setStatusEdit] = useState<{ item: AgendaItem; status: AgendaItem['status']; comment: string } | null>(null)
+  const [rescheduleEdit, setRescheduleEdit] = useState<RescheduleEdit | null>(null)
   const [statusBusy, setStatusBusy] = useState(false)
   const [createBusy, setCreateBusy] = useState(false)
   const [newItem, setNewItem] = useState<NewAgendaItem>({ title: '', domain: 'projects', projectId: '', agentId: 'pmo', priority: 'normal', riskLevel: 'low', requiresApproval: false, startsAt: '', dueAt: '', nextAction: '' })
   const [error, setError] = useState('')
   const modalBusy = useRef(false)
-  modalBusy.current = createBusy || deleteBusy || statusBusy
+  modalBusy.current = createBusy || deleteBusy || statusBusy || Boolean(rescheduleEdit?.busy)
   const today = dateKey(new Date())
   const tomorrow = shiftDay(today, 1)
   const weekEnd = shiftDay(today, 6)
 
   useEffect(() => {
-    if (!createOpen && !deleteItem && !statusEdit) return
+    if (!createOpen && !deleteItem && !statusEdit && !rescheduleEdit) return
     const previousFocus = document.activeElement as HTMLElement | null
     const dialog = document.querySelector<HTMLElement>('.agenda-modal-backdrop [role="dialog"], .agenda-modal-backdrop [role="alertdialog"]')
     const controls = () => Array.from(dialog?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)') ?? [])
     controls().find((control) => control.hasAttribute('autofocus'))?.focus()
     if (!dialog?.contains(document.activeElement)) controls()[0]?.focus()
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !modalBusy.current) { setCreateOpen(false); setEditingItem(null); setDeleteItem(null); setStatusEdit(null) }
+      if (event.key === 'Escape' && !modalBusy.current) { setCreateOpen(false); setEditingItem(null); setDeleteItem(null); setStatusEdit(null); setRescheduleEdit(null) }
       if (event.key !== 'Tab') return
       const list = controls()
       if (!list.length) { event.preventDefault(); dialog?.focus(); return }
@@ -127,7 +142,7 @@ export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete
     }
     document.addEventListener('keydown', onKey)
     return () => { document.removeEventListener('keydown', onKey); if (previousFocus?.isConnected) previousFocus.focus(); else document.querySelector<HTMLButtonElement>('.agenda-new-task')?.focus() }
-  }, [createOpen, Boolean(deleteItem), Boolean(statusEdit)])
+  }, [createOpen, Boolean(deleteItem), Boolean(statusEdit), Boolean(rescheduleEdit)])
 
   function openEditor(item: AgendaItem | null) {
     setError('')
@@ -218,6 +233,34 @@ export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete
     finally { setStatusBusy(false) }
   }
 
+  function openReschedule(item: AgendaItem) {
+    setError('')
+    setRescheduleEdit({ item, day: today, mode: 'both', busy: false })
+  }
+
+  async function saveReschedule(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!rescheduleEdit) return
+    const formData = new FormData(event.currentTarget)
+    const day = String(formData.get('day') ?? rescheduleEdit.day)
+    const mode = String(formData.get('mode') ?? rescheduleEdit.mode) as RescheduleMode
+    const startTime = String(formData.get('startTime') ?? localInputTime(rescheduleEdit.item.startsAt))
+    const dueTime = String(formData.get('dueTime') ?? localInputTime(rescheduleEdit.item.dueAt, startTime))
+    const item = rescheduleEdit.item
+    const changes: Record<string, string> = {}
+    if (mode === 'both' || mode === 'start') changes.startsAt = bogotaIso(day, startTime)
+    if (mode === 'both' || mode === 'due') changes.dueAt = bogotaIso(day, dueTime)
+    setRescheduleEdit({ ...rescheduleEdit, day, mode, busy: true })
+    setError('')
+    try {
+      await onEdit(item.id, changes)
+      setRescheduleEdit(null)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'No se pudo reprogramar la tarea')
+      setRescheduleEdit((current) => current ? { ...current, busy: false } : current)
+    }
+  }
+
   function renderCard(item: AgendaItem) {
     const person = agentView(item.agentId)
     const day = itemDay(item)
@@ -234,6 +277,7 @@ export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete
       {item.lastStatusComment?.comment && <p className="agenda-status-comment"><b>Comentario del cambio:</b> {item.lastStatusComment.comment}</p>}
       {item.sourcePath && <div className="agenda-source"><ExternalLink size={12} />{item.sourcePath.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? 'Referencia del proyecto'}</div>}
       <div className="agenda-task-footer"><span className={`agenda-status ${item.status}`}><Circle size={8} fill="currentColor" />{statusLabels[item.status] ?? item.status}</span><div className="agenda-task-actions">
+        {overdue && <button className="agenda-reschedule-task" disabled={busyId === item.id} aria-label={`Reprogramar ${item.title} esta semana`} onClick={() => openReschedule(item)}><CalendarClock size={14} />Esta semana</button>}
         <button className="agenda-edit-task" disabled={busyId === item.id} aria-label={`Editar ${item.title}`} onClick={() => openEditor(item)}><Pencil size={14} />Editar</button>
         <button className="agenda-delete-task" disabled={busyId === item.id} aria-label={`Eliminar ${item.title}`} onClick={() => { setError(''); setDeleteItem(item) }}><Trash2 size={14} />Eliminar</button>
         {item.requiresApproval && !item.approvalConfirmed && <button className="agenda-approve" disabled={busyId === item.id} onClick={() => void runAction(item.id, () => onApprove(item.id))}><ShieldAlert size={14} />Aprobar</button>}
@@ -270,6 +314,17 @@ export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete
       <label className="agenda-field">Comentario <span className="field-optional">Opcional</span><textarea autoFocus maxLength={2000} rows={4} placeholder="Deja contexto sobre este cambio…" value={statusEdit.comment} onChange={(event) => setStatusEdit({ ...statusEdit, comment: event.target.value })} /></label>
       <p className="status-comment-hint">El comentario quedará guardado en el historial de la tarea. Evita incluir contraseñas o datos sensibles.</p>
       <footer><button className="agenda-close" type="button" disabled={statusBusy} onClick={() => setStatusEdit(null)}>Cancelar</button><button className="agenda-new-task" type="submit" disabled={statusBusy}>{statusBusy ? 'Guardando…' : 'Guardar cambio'}</button></footer>
+    </form></div>}
+    {rescheduleEdit && <div className="agenda-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !rescheduleEdit.busy) setRescheduleEdit(null) }}><form tabIndex={-1} className="agenda-create-form status-comment-modal" role="dialog" aria-modal="true" aria-labelledby="reschedule-title" onSubmit={(event) => void saveReschedule(event)}>
+      <header><div><span className="eyebrow">REPROGRAMACIÓN DE AGENDA</span><h2 id="reschedule-title">Mover a esta semana</h2></div><button type="button" aria-label="Cerrar" disabled={rescheduleEdit.busy} onClick={() => setRescheduleEdit(null)}><X size={17} /></button></header>
+      <p className="status-comment-task">{rescheduleEdit.item.title}</p>
+      <label className="agenda-field">Día de la agenda<select name="day" autoFocus value={rescheduleEdit.day} onChange={(event) => setRescheduleEdit({ ...rescheduleEdit, day: event.target.value })}>{Array.from({ length: 7 }, (_, index) => { const day = shiftDay(today, index); const local = new Date(`${day}T12:00:00-05:00`); return <option key={day} value={day}>{new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', weekday: 'long', day: 'numeric', month: 'long' }).format(local)}</option> })}</select></label>
+      <label className="agenda-field">Qué fecha mover<select name="mode" value={rescheduleEdit.mode} onChange={(event) => setRescheduleEdit({ ...rescheduleEdit, mode: event.target.value as RescheduleMode })}><option value="both">Inicio y vencimiento</option><option value="start">Solo inicio</option><option value="due">Solo vencimiento</option></select></label>
+      {(rescheduleEdit.mode === 'both' || rescheduleEdit.mode === 'start') && <label className="agenda-field">Hora de inicio<input name="startTime" type="time" defaultValue={localInputTime(rescheduleEdit.item.startsAt)} /></label>}
+      {(rescheduleEdit.mode === 'both' || rescheduleEdit.mode === 'due') && <label className="agenda-field">Hora de vencimiento<input name="dueTime" type="time" defaultValue={localInputTime(rescheduleEdit.item.dueAt, localInputTime(rescheduleEdit.item.startsAt, '09:00'))} /></label>}
+      <p className="status-comment-hint">Al mover ambas fechas se conserva la hora de cada una. La tarea dejará de aparecer como atrasada cuando el vencimiento quede en el futuro.</p>
+      {error && <div className="agenda-error" role="alert"><AlertTriangle size={15} />{error}</div>}
+      <footer><button className="agenda-close" type="button" disabled={rescheduleEdit.busy} onClick={() => setRescheduleEdit(null)}>Cancelar</button><button className="agenda-new-task" type="submit" disabled={rescheduleEdit.busy}>{rescheduleEdit.busy ? 'Guardando…' : 'Reprogramar tarea'}</button></footer>
     </form></div>}
     <div className="agenda-content">
       {view === 'kanban' ? <div className="agenda-kanban">{kanbanColumns.map((column) => {

@@ -182,7 +182,11 @@ button { cursor: pointer; }
 .agenda-delete-task:hover { background: #3b1d2a; border-color: #ffadb6; }
 .agenda-edit-task:disabled, .agenda-delete-task:disabled { opacity: .5; cursor: wait; }
 .agenda-task-actions { flex-wrap: wrap; }
+.agenda-reschedule-task { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; padding: 7px 10px; border: 1px solid rgba(43,235,210,.28); border-radius: 8px; color: #7ee6ca; background: rgba(43,235,210,.07); cursor: pointer; font: inherit; font-size: 12px; }
+.agenda-reschedule-task:hover { border-color: #24dfcd; color: #b6fff3; background: rgba(43,235,210,.13); }
+.agenda-reschedule-task:disabled { opacity: .5; cursor: wait; }
 .agenda-edit-task:focus-visible, .agenda-delete-task:focus-visible { outline: 2px solid #24dfcd; outline-offset: 3px; }
+.agenda-reschedule-task:focus-visible { outline: 2px solid #24dfcd; outline-offset: 3px; }
 @media (max-width: 600px) { .agenda-task-footer { flex-wrap: wrap; gap: 10px; } .agenda-task-actions { width: 100%; } .agenda-edit-task, .agenda-delete-task { min-height: 44px; } }
 .deployment-version { margin: 2px 14px 15px; padding: 12px; border: 1px solid rgba(43,235,210,.2); border-radius: 11px; background: rgba(43,235,210,.035); }
 .deployment-version > header { display: flex; align-items: end; justify-content: space-between; gap: 10px; }
