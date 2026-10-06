@@ -34,7 +34,7 @@ const empty = (value: string) => /^(ninguno|ninguna|n\/a|na|no|no aplica|sin def
 function bucketFor(heading: string): keyof ProjectStateSections | null {
   if (/completad|terminad|hecho|finalizad/.test(heading)) return 'completed'
   if (/en progreso|en curso|en desarrollo|trabajando/.test(heading)) return 'inProgress'
-  if (/proximos? pasos?|siguientes? pasos?|proximas? acciones?/.test(heading)) return 'nextSteps'
+  if (/proximos? pasos?|siguientes? pasos?|proximas? acciones?|continuacion/.test(heading)) return 'nextSteps'
   if (/pendiente|por hacer|backlog/.test(heading)) return 'pending'
   return null
 }
@@ -43,25 +43,35 @@ export function parseProjectState(markdown: string): ParsedProjectState {
   const state: ParsedProjectState = { title: null, projectId: null, updatedLabel: null, generalStatus: null, progress: null, nextAction: null, mainBlocker: null, sourceDriveFolder: null, sourceDriveFile: null, obsidianNote: null, sections: { completed: [], inProgress: [], pending: [], nextSteps: [] } }
   let bucket: keyof ProjectStateSections | null = null
   let bucketLevel = 0
+  let statusFollows = false // set by a heading like "Estado general": its first line of text is the status
   for (const raw of repairEncoding(markdown).split(/\r?\n/)) {
     const line = raw.trimEnd()
     const heading = line.match(/^(#{1,6})\s+(.*)$/)
     if (heading) {
       const level = heading[1].length
-      const text = cleanInline(heading[2])
+      const text = cleanInline(heading[2]).replace(/^[^\p{L}\p{N}]+/u, '')
       if (level === 1 && !state.title) state.title = text.replace(/^estado\s+(del\s+)?proyecto\s*[:\-–—]?\s*/i, '').trim() || text
+      statusFollows = /^(\d+[.)]\s*)?estado (general|actual)/.test(plain(text))
       const next = bucketFor(plain(text))
       // "Inmediato" or "Corto plazo" under "Próximos pasos" still belong to it; a sibling heading ends it.
       if (next) { bucket = next; bucketLevel = level } else if (level <= bucketLevel) { bucket = null; bucketLevel = 0 }
       continue
     }
-    const pair = line.match(/^\s*(?:[-*]\s+)?\*\*([^*:]{2,40}):\*\*\s*(.+)$/) ?? line.match(/^([A-Za-zÁÉÍÓÚáéíóúñ]{4,24}):\s*(.+)$/)
+    if (statusFollows && line.trim() && !/^[-|>*_=\s]+$/.test(line) && !line.trimStart().startsWith('|')) {
+      statusFollows = false
+      state.generalStatus ??= cleanInline(line.replace(/^\s*(?:[-*+]|\d+[.)])\s+/, '')).slice(0, 600) || null
+    }
+    // "**Clave:** valor", "clave: valor" and two-column table rows ("| Status | EN DESARROLLO |").
+    const pair = line.match(/^\s*(?:[-*]\s+)?\*\*([^*:]{2,40}):\*\*\s*(.+)$/) ?? line.match(/^([A-Za-zÁÉÍÓÚáéíóúñ]{4,24}):\s*(.+)$/) ?? line.match(/^\|\s*([^|]{2,40}?)\s*\|\s*([^|]+?)\s*\|\s*$/)
     if (pair) {
       const key = plain(pair[1]).replace(/[^a-z]/g, '')
       const value = cleanInline(pair[2])
-      if (key === 'estadogeneral' || key === 'estado') state.generalStatus ??= value.slice(0, 600)
-      else if (key === 'progreso' || key === 'avance') { const percent = value.match(/(\d{1,3})\s*%/); if (percent && state.progress === null) state.progress = Math.min(100, Number(percent[1])) }
-      else if (key === 'ultimaactualizacion') state.updatedLabel = value.slice(0, 80) // the last one in the file is the freshest
+      if (key === 'estadogeneral' || key === 'estado' || key === 'status' || key === 'estadoactual') state.generalStatus ??= value.slice(0, 600)
+      else if (key === 'progreso' || key === 'avance' || key === 'progresogeneral') {
+        const percent = value.match(/(\d{1,3})\s*%/)
+        if (percent) { if (state.progress === null) state.progress = Math.min(100, Number(percent[1])) } else if (key === 'progresogeneral') state.generalStatus ??= value.slice(0, 600)
+      }
+      else if (key === 'ultimaactualizacion' || key === 'actualizado') state.updatedLabel = value.slice(0, 80) // the last one in the file is the freshest
       else if (key === 'projectid') state.projectId ??= value.slice(0, 120)
       else if (key === 'proximaaccion' || key === 'siguienteaccion') { if (!empty(value)) state.nextAction ??= value.slice(0, 2000) }
       else if (key === 'bloqueoprincipal' || key === 'bloqueo') { if (!empty(value)) state.mainBlocker ??= value.slice(0, 2000) }

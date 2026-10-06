@@ -62,6 +62,11 @@ test('reads the Synapse block and ignores empty blockers', () => {
   assert.equal(state.obsidianNote, null)
   assert.deepEqual([state.sections.inProgress, state.sections.pending, state.sections.nextSteps], [['Integración de leads'], ['Prueba de aceptación'], ['Verificar cronjob']])
   assert.equal(parseProjectState('bloqueoPrincipal: Ninguno\n').mainBlocker, null)
+  // Other shapes found in real files: emoji before the title, a status table, a status section, plain "Actualizado:".
+  const table = parseProjectState('# 📊 Estado del Proyecto — Landing Montesvisión\n\n**Progreso General:** Desarrollo avanzado\n\n| Métrica | Valor |\n|---|---|\n| Cliente | Montesvisión |\n| Status | EN DESARROLLO |\n\n### ✅ Hecho (2026-08-05)\n- Landing desarrollada\n\n### 🟡 Pendiente (a definir)\n- [ ] Confirmar con el cliente\n')
+  assert.deepEqual([table.title, table.generalStatus, table.sections.completed, table.sections.pending], ['Landing Montesvisión', 'Desarrollo avanzado', ['Landing desarrollada'], ['Confirmar con el cliente']])
+  const prose = parseProjectState('# Estado del proyecto: El mundo de Lucía\n\nActualizado: 1 de octubre de 2026\n\n## 2. Estado general\n\nSitio publicado y en revisión.\n\nSegundo párrafo.\n\n## Continuación del trabajo\n\n- Verificar el dominio\n')
+  assert.deepEqual([prose.title, prose.updatedLabel, prose.generalStatus, prose.sections.nextSteps], ['El mundo de Lucía', '1 de octubre de 2026', 'Sitio publicado y en revisión.', ['Verificar el dominio']])
 })
 
 test('repairs files saved with the wrong encoding and recognises the file names in use', () => {
