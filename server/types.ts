@@ -73,6 +73,7 @@ export type Commitment = {
   people: string[]
   source: 'manual' | 'calendar' | 'whatsapp' | 'email' | 'note' | 'cronjob'
   externalId?: string | null
+  projectId?: string | null
   startsAt: string | null
   dueAt: string | null
   status: 'captured' | 'planned' | 'confirmed' | 'pending' | 'in_progress' | 'waiting_approval' | 'blocked' | 'done' | 'cancelled'
@@ -122,4 +123,72 @@ export type RouteDecision = {
   nextAction: string
   llmNeeded: boolean
   reason: string
+}
+
+export type ProjectStatus = 'por_clasificar' | 'propuesta' | 'en_curso' | 'pausado' | 'completado' | 'facturado' | 'cancelado'
+export type MilestoneStatus = 'pending' | 'in_progress' | 'blocked' | 'done' | 'cancelled'
+export type ProjectUpdateKind = 'avance' | 'bloqueo' | 'riesgo' | 'decision' | 'leccion'
+export type ProjectHealth = 'verde' | 'amarillo' | 'rojo'
+
+export type Client = {
+  id: string
+  name: string
+  contactName: string | null
+  email: string | null
+  phone: string | null
+  industry: string | null
+  status: 'active' | 'inactive' | 'archived'
+  notes: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type Project = {
+  id: string
+  code: string | null
+  name: string
+  clientId: string | null
+  domain: Domain
+  ownerAgentId: AgentId
+  status: ProjectStatus
+  startsAt: string | null
+  dueAt: string | null
+  nextAction: string | null
+  sourcePath: string | null
+  sourceDriveFolder: string | null
+  obsidianNote: string | null
+  origin: 'manual' | 'auto' | 'mcp'
+  createdAt: string
+  updatedAt: string
+}
+
+export type Milestone = {
+  id: string
+  projectId: string
+  title: string
+  phase: string | null
+  ownerAgentId: AgentId | null
+  ownerName: string | null
+  startsAt: string | null
+  dueAt: string
+  status: MilestoneStatus
+  sortOrder: number
+  completedAt: string | null
+  notes: string | null
+  externalId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type ProjectUpdate = {
+  id: string
+  projectId: string
+  kind: ProjectUpdateKind
+  text: string
+  author: string
+  source: 'manual' | 'mcp' | 'bitacora'
+  externalId: string | null
+  resolvedAt: string | null
+  resolution: string | null
+  createdAt: string
 }

@@ -13,6 +13,8 @@ import { parseLead } from './leads.js'
 import { beginPasskeyAuthentication, beginPasskeyRegistration, completePasskeyAuthentication, completePasskeyRegistration, listPasskeys, loginWithVerifiedPasskey, removePasskey } from './passkeys.js'
 import type { Domain, UserRole } from './types.js'
 import { editAgendaRecord, removeAgendaRecord } from './agenda-mutations.js'
+import { agendaMilestoneItems } from './projects.js'
+import { handleProjectRoutes } from './project-routes.js'
 
 const port = Number(process.env.PORT ?? 3010)
 const host = process.env.SYNAPSE_HOST ?? '127.0.0.1'
@@ -47,7 +49,7 @@ function agendaItemFromRequest(request: ReturnType<typeof listRequests>[number])
 function agendaItemFromCommitment(commitment: ReturnType<typeof listCommitments>[number]) {
   const agentsByDomain: Partial<Record<Domain, string>> = { health: 'salud-familiar', family: 'salud-familiar', sales: 'ventas', marketing: 'marketing', learning: 'educacion-aprendizaje', projects: 'pmo', technology: 'tecnico', agency: 'pmo' }
   const status = commitment.status === 'done' ? 'done' : commitment.status === 'cancelled' ? 'cancelled' : commitment.status === 'in_progress' || commitment.status === 'confirmed' ? 'in_progress' : commitment.status === 'waiting_approval' ? 'waiting_approval' : commitment.status === 'blocked' ? 'blocked' : 'pending'
-  return { id: `commitment:${commitment.id}`, kind: 'commitment' as const, requestId: null, commitmentId: commitment.id, title: commitment.title, domain: commitment.domain, projectId: null, agentId: agentsByDomain[commitment.domain] ?? 'secretaria', status, priority: 'normal' as const, riskLevel: 'low' as const, requiresApproval: false, approvalConfirmed: false, startsAt: commitment.startsAt, dueAt: commitment.dueAt, nextAction: '', sourcePath: null, sourceDriveFolder: null, createdAt: commitment.createdAt, updatedAt: commitment.updatedAt, lastStatusComment: getLatestAgendaStatusComment(`commitment:${commitment.id}`) }
+  return { id: `commitment:${commitment.id}`, kind: 'commitment' as const, requestId: null, commitmentId: commitment.id, title: commitment.title, domain: commitment.domain, projectId: commitment.projectId ?? null, agentId: agentsByDomain[commitment.domain] ?? 'secretaria', status, priority: 'normal' as const, riskLevel: 'low' as const, requiresApproval: false, approvalConfirmed: false, startsAt: commitment.startsAt, dueAt: commitment.dueAt, nextAction: '', sourcePath: null, sourceDriveFolder: null, createdAt: commitment.createdAt, updatedAt: commitment.updatedAt, lastStatusComment: getLatestAgendaStatusComment(`commitment:${commitment.id}`) }
 }
 
 async function completeWithHermes(input: { requestId: string; conversationAgentId: Parameters<typeof addMessage>[0]['agentId']; decision: ReturnType<typeof routeRequest> }): Promise<void> {
@@ -123,6 +125,7 @@ const server = createServer(async (req, res) => {
     }
     if (url.pathname.startsWith('/api/') && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method ?? '') && !sameOriginMutation(req)) return send(res, 403, { error: 'Origen de solicitud no permitido.' })
     if (url.pathname === '/mcp') return handleMcp(req, res)
+    if (/^\/api\/(projects|clients|project-digest)(\/|$)/.test(url.pathname) && await handleProjectRoutes(req, res, url, { send, requireSession, inDomain })) return
     if (req.method === 'GET' && url.pathname === '/api/leads') {
       const session = requireSession(req, res); if (!session) return
       if (!inDomain(session, 'sales')) return send(res, 403, { error: 'No tienes acceso a los leads de ventas.' })
@@ -301,7 +304,7 @@ const server = createServer(async (req, res) => {
     }
     if (req.method === 'GET' && url.pathname === '/api/operational-agenda') {
       const session = requireSession(req, res); if (!session) return
-      const items = [...listRequests().filter((item) => inDomain(session, item.domain)).map(agendaItemFromRequest), ...listCommitments().filter((item) => inDomain(session, item.domain)).map(agendaItemFromCommitment)]
+      const items = [...listRequests().filter((item) => inDomain(session, item.domain)).map(agendaItemFromRequest), ...listCommitments().filter((item) => inDomain(session, item.domain)).map(agendaItemFromCommitment), ...agendaMilestoneItems((domain) => inDomain(session, domain))]
       const from = url.searchParams.get('from')
       const to = url.searchParams.get('to')
       const filtered = items.filter((item) => {
@@ -378,7 +381,7 @@ const server = createServer(async (req, res) => {
       if ((startsAtValue && (!startsAt || Number.isNaN(startsAt.getTime()))) || (dueAtValue && (!dueAt || Number.isNaN(dueAt.getTime())))) return send(res, 400, { error: 'Revisa las fechas y horas del compromiso.' })
       if (startsAt && dueAt && startsAt.getTime() > dueAt.getTime()) return send(res, 400, { error: 'La fecha de vencimiento debe ser posterior al inicio.' })
       const people = Array.isArray(input.people) ? input.people.filter((item): item is string => typeof item === 'string').slice(0, 20).map((person) => person.trim().slice(0, 120)).filter(Boolean) : []
-      const commitment = createCommitment({ title, domain, people, source: 'manual', startsAt: startsAt?.toISOString() ?? null, dueAt: dueAt?.toISOString() ?? null })
+      const commitment = createCommitment({ title, domain, people, source: 'manual', startsAt: startsAt?.toISOString() ?? null, dueAt: dueAt?.toISOString() ?? null, projectId: text(input.projectId).slice(0, 120) || null })
       addAudit({ action: 'commitment_created', summary: commitment.title, source: 'api' })
       return send(res, 201, { commitment })
     }

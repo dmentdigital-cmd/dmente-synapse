@@ -26,7 +26,7 @@ export function editAgendaRecord(id: string, input: Record<string, unknown>, sou
   const found = findAgendaRecord(id, commitmentOnly)
   if (!found) throw new AgendaMutationError('Tarea no encontrada.', 404)
   if (!allowDomain(found.record.domain)) throw new AgendaMutationError('No tienes acceso a ese dominio.', 403)
-  const allowed = found.kind === 'commitment' ? ['title', 'domain', 'startsAt', 'dueAt', 'people', 'status'] : ['title', 'domain', 'startsAt', 'dueAt', 'projectId', 'agentId', 'priority', 'riskLevel', 'nextAction', 'requiresApproval', 'status']
+  const allowed = found.kind === 'commitment' ? ['title', 'domain', 'startsAt', 'dueAt', 'people', 'status', 'projectId'] : ['title', 'domain', 'startsAt', 'dueAt', 'projectId', 'agentId', 'priority', 'riskLevel', 'nextAction', 'requiresApproval', 'status']
   if (!Object.keys(input).length || Object.keys(input).some((key) => !allowed.includes(key))) throw new AgendaMutationError('Campos de edición no válidos.')
   const patch: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(input)) {

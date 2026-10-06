@@ -4,13 +4,14 @@ import { addAudit, addMessage, createCommitment, createRequest, getLocalProfile,
 import { readJsonBody } from './security.js'
 import type { AgentId, Domain } from './types.js'
 import { editAgendaRecord, removeAgendaRecord } from './agenda-mutations.js'
+import { callProjectTool, isProjectTool, projectReadOnlyTools, projectToolDefinitions } from './project-mcp.js'
 
 const legacyMcpToken = process.env.SYNAPSE_MCP_TOKEN
 const mcpReadToken = process.env.SYNAPSE_MCP_READ_TOKEN
 const mcpWriteToken = process.env.SYNAPSE_MCP_WRITE_TOKEN
 type McpScope = 'read' | 'write' | null
 type McpAccess = { scope: Exclude<McpScope, null>; domains: Domain[] }
-const readOnlyTools = new Set(['synapse_get_profile', 'synapse_list_agents', 'synapse_list_requests', 'synapse_list_messages', 'synapse_list_commitments'])
+const readOnlyTools = new Set(['synapse_get_profile', 'synapse_list_agents', 'synapse_list_requests', 'synapse_list_messages', 'synapse_list_commitments', ...projectReadOnlyTools])
 const knownDomains: Domain[] = ['agency', 'personal', 'family', 'health', 'education', 'church', 'learning', 'wellbeing', 'projects', 'technology', 'finance', 'knowledge', 'product', 'messaging', 'sales', 'marketing', 'legal']
 
 function configuredDomains(variable: string): Domain[] {
@@ -25,7 +26,7 @@ type JsonRpcRequest = { jsonrpc?: string; id?: string | number | null; method?: 
 
 const toolDefinitions = [
   ...['commitment', 'task'].flatMap((kind) => [
-    { name: `synapse_update_${kind}`, description: 'Edita una tarea interna por ID cuando Diego lo solicita. Primero consulta la tarea. No ejecuta acciones externas ni retira aprobaciones. task acepta solicitudes y compromisos; commitment solo compromisos.', inputSchema: { type: 'object', properties: { id: { type: 'string' }, changes: { type: 'object', additionalProperties: false, properties: { title: { type: 'string', maxLength: 200 }, domain: { type: 'string' }, startsAt: { type: ['string', 'null'], description: 'Fecha ISO con zona horaria; null quita la fecha.' }, dueAt: { type: ['string', 'null'] }, status: { type: 'string' }, ...(kind === 'commitment' ? { people: { type: 'array', items: { type: 'string' } } } : { projectId: { type: ['string', 'null'] }, agentId: { type: 'string' }, priority: { type: 'string', enum: ['low', 'normal', 'high', 'urgent'] }, riskLevel: { type: 'string', enum: ['low', 'medium', 'high'] }, nextAction: { type: 'string' }, requiresApproval: { type: 'boolean' } }) } } }, required: ['id', 'changes'] } },
+    { name: `synapse_update_${kind}`, description: 'Edita una tarea interna por ID cuando Diego lo solicita. Primero consulta la tarea. No ejecuta acciones externas ni retira aprobaciones. task acepta solicitudes y compromisos; commitment solo compromisos.', inputSchema: { type: 'object', properties: { id: { type: 'string' }, changes: { type: 'object', additionalProperties: false, properties: { title: { type: 'string', maxLength: 200 }, domain: { type: 'string' }, startsAt: { type: ['string', 'null'], description: 'Fecha ISO con zona horaria; null quita la fecha.' }, dueAt: { type: ['string', 'null'] }, status: { type: 'string' }, ...(kind === 'commitment' ? { people: { type: 'array', items: { type: 'string' } }, projectId: { type: ['string', 'null'] } } : { projectId: { type: ['string', 'null'] }, agentId: { type: 'string' }, priority: { type: 'string', enum: ['low', 'normal', 'high', 'urgent'] }, riskLevel: { type: 'string', enum: ['low', 'medium', 'high'] }, nextAction: { type: 'string' }, requiresApproval: { type: 'boolean' } }) } } }, required: ['id', 'changes'] } },
     { name: `synapse_delete_${kind}`, description: 'Elimina una tarea interna de la agenda únicamente por petición explícita de Diego. Primero lista las tareas para verificar ID y título exactos. No crea una solicitud para borrar después: ejecuta el borrado y devuelve el resultado. No necesita aprobación externa. Conserva el historial interno.', inputSchema: { type: 'object', properties: { id: { type: 'string' }, expectedTitle: { type: 'string', description: 'Título exacto leído al consultar la tarea.' } }, required: ['id', 'expectedTitle'] } },
   ]),
   { name: 'synapse_get_profile', description: 'Obtiene el perfil local y los permisos de Diego.', inputSchema: { type: 'object', properties: {} } },
@@ -37,7 +38,8 @@ const toolDefinitions = [
   { name: 'synapse_update_request_sources', description: 'Agrega o actualiza en una solicitud las referencias a Obsidian, estado canónico local o carpeta de Drive.', inputSchema: { type: 'object', properties: { requestId: { type: 'string' }, obsidianNote: { type: 'string' }, sourcePath: { type: 'string' }, sourceDriveFolder: { type: 'string' } }, required: ['requestId'] } },
   { name: 'synapse_add_message', description: 'Agrega un mensaje de Hermes o LuciaBot a la conversación.', inputSchema: { type: 'object', properties: { agentId: { type: 'string' }, text: { type: 'string' }, requestId: { type: 'string' } }, required: ['agentId', 'text'] } },
   { name: 'synapse_list_commitments', description: 'Lista compromisos personales, familiares y de agencia.', inputSchema: { type: 'object', properties: { domain: { type: 'string' } } } },
-  { name: 'synapse_create_commitment', description: 'Registra o sincroniza de forma idempotente un compromiso (por ejemplo, desde un cronjob). No envía mensajes ni crea eventos externos.', inputSchema: { type: 'object', properties: { title: { type: 'string' }, domain: { type: 'string' }, people: { type: 'array', items: { type: 'string' } }, startsAt: { type: 'string' }, dueAt: { type: 'string' }, externalId: { type: 'string', description: 'ID estable del evento externo para actualizarlo sin duplicarlo al reintentar.' } }, required: ['title', 'domain'] } },
+  { name: 'synapse_create_commitment', description: 'Registra o sincroniza de forma idempotente un compromiso (por ejemplo, desde un cronjob). No envía mensajes ni crea eventos externos.', inputSchema: { type: 'object', properties: { title: { type: 'string' }, domain: { type: 'string' }, people: { type: 'array', items: { type: 'string' } }, startsAt: { type: 'string' }, dueAt: { type: 'string' }, externalId: { type: 'string', description: 'ID estable del evento externo para actualizarlo sin duplicarlo al reintentar.' }, projectId: { type: 'string', description: 'Proyecto al que pertenece el compromiso (opcional).' } }, required: ['title', 'domain'] } },
+  ...projectToolDefinitions,
 ]
 
 function digest(value: string): Buffer { return createHash('sha256').update(value).digest() }
@@ -73,6 +75,7 @@ function requireDomainAccess(access: McpAccess, domain: Domain): void {
 }
 
 async function callTool(name: string, args: Record<string, unknown>, access: McpAccess): Promise<unknown> {
+  if (isProjectTool(name)) return callProjectTool(name, args, access)
   if (['synapse_update_commitment', 'synapse_update_task', 'synapse_delete_commitment', 'synapse_delete_task'].includes(name)) {
     if (access.scope !== 'write') throw new Error('El token MCP no tiene permiso de escritura interna')
     const id = text(args.id)
@@ -180,7 +183,7 @@ async function callTool(name: string, args: Record<string, unknown>, access: Mcp
     const people = Array.isArray(args.people) ? args.people.filter((item): item is string => typeof item === 'string').slice(0, 20).map((person) => person.trim().slice(0, 120)).filter(Boolean) : []
     const externalId = text(args.externalId)
     if (externalId.length > 200) throw new Error('externalId excede el máximo de 200 caracteres')
-    const commitment = createCommitment({ title, domain, people, source: externalId ? 'cronjob' : 'manual', startsAt: startsAt?.toISOString() ?? null, dueAt: dueAt?.toISOString() ?? null, externalId: externalId || null })
+    const commitment = createCommitment({ title, domain, people, source: externalId ? 'cronjob' : 'manual', startsAt: startsAt?.toISOString() ?? null, dueAt: dueAt?.toISOString() ?? null, externalId: externalId || null, projectId: text(args.projectId).slice(0, 120) || null })
     addAudit({ action: externalId ? 'mcp_commitment_synced' : 'mcp_commitment_created', summary: commitment.title, source: 'hermes-mcp' })
     return { commitment }
   }

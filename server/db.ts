@@ -281,6 +281,7 @@ db.exec(`
 const commitmentColumns = new Set((db.prepare('PRAGMA table_info(commitments)').all() as { name: string }[]).map((column) => column.name))
 if (!commitmentColumns.has('updated_at')) db.exec("ALTER TABLE commitments ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''")
 if (!commitmentColumns.has('external_id')) db.exec('ALTER TABLE commitments ADD COLUMN external_id TEXT')
+if (!commitmentColumns.has('project_id')) db.exec('ALTER TABLE commitments ADD COLUMN project_id TEXT')
 
 const requestColumns = new Set((db.prepare('PRAGMA table_info(requests)').all() as { name: string }[]).map((column) => column.name))
 if (!requestColumns.has('project_id')) db.exec('ALTER TABLE requests ADD COLUMN project_id TEXT')
@@ -449,31 +450,33 @@ export function listPermissions(profileId = localProfile.id): Permission[] {
   return rows.map((row) => ({ profileId: String(row.profile_id), domain: row.domain as Domain, canRead: Boolean(row.can_read), canWrite: Boolean(row.can_write), requiresApproval: Boolean(row.requires_approval) }))
 }
 
-export function createCommitment(input: { title: string; domain: Domain; people?: string[]; source?: Commitment['source']; startsAt?: string | null; dueAt?: string | null; externalId?: string | null }): Commitment {
+export function createCommitment(input: { title: string; domain: Domain; people?: string[]; source?: Commitment['source']; startsAt?: string | null; dueAt?: string | null; externalId?: string | null; projectId?: string | null }): Commitment {
   const externalId = input.externalId?.trim() || null
   if (externalId && externalId.length > 200) throw new Error('externalId excede el máximo de 200 caracteres')
   if (externalId) {
     const now = new Date().toISOString()
-    db.prepare(`INSERT INTO commitments (id, title, domain, people_json, source, starts_at, due_at, status, created_at, updated_at, external_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'captured', ?, ?, ?)
+    // A re-sync that omits the project keeps the one already linked.
+    db.prepare(`INSERT INTO commitments (id, title, domain, people_json, source, starts_at, due_at, status, created_at, updated_at, external_id, project_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'captured', ?, ?, ?, ?)
       ON CONFLICT(external_id) DO UPDATE SET title = excluded.title, domain = excluded.domain, people_json = excluded.people_json,
-      source = excluded.source, starts_at = excluded.starts_at, due_at = excluded.due_at, updated_at = excluded.updated_at, deleted_at = NULL`)
-      .run(randomUUID(), input.title.trim(), input.domain, JSON.stringify(input.people ?? []), input.source ?? 'manual', input.startsAt ?? null, input.dueAt ?? null, now, now, externalId)
+      source = excluded.source, starts_at = excluded.starts_at, due_at = excluded.due_at, updated_at = excluded.updated_at, deleted_at = NULL,
+      project_id = COALESCE(excluded.project_id, commitments.project_id)`)
+      .run(randomUUID(), input.title.trim(), input.domain, JSON.stringify(input.people ?? []), input.source ?? 'manual', input.startsAt ?? null, input.dueAt ?? null, now, now, externalId, input.projectId ?? null)
     const row = db.prepare('SELECT * FROM commitments WHERE external_id = ? AND deleted_at IS NULL').get(externalId) as Record<string, unknown>
     return commitmentFromRow(row)
   }
   const commitment: Commitment = {
     id: randomUUID(), title: input.title.trim(), domain: input.domain, people: input.people ?? [], source: input.source ?? 'manual',
-    startsAt: input.startsAt ?? null, dueAt: input.dueAt ?? null, status: 'captured', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), externalId: null,
+    startsAt: input.startsAt ?? null, dueAt: input.dueAt ?? null, status: 'captured', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), externalId: null, projectId: input.projectId ?? null,
   }
-  db.prepare('INSERT INTO commitments (id, title, domain, people_json, source, starts_at, due_at, status, created_at, updated_at, external_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)')
-    .run(commitment.id, commitment.title, commitment.domain, JSON.stringify(commitment.people), commitment.source, commitment.startsAt, commitment.dueAt, commitment.status, commitment.createdAt, commitment.updatedAt)
+  db.prepare('INSERT INTO commitments (id, title, domain, people_json, source, starts_at, due_at, status, created_at, updated_at, external_id, project_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)')
+    .run(commitment.id, commitment.title, commitment.domain, JSON.stringify(commitment.people), commitment.source, commitment.startsAt, commitment.dueAt, commitment.status, commitment.createdAt, commitment.updatedAt, commitment.projectId ?? null)
   return commitment
 }
 
 function commitmentFromRow(row: Record<string, unknown>): Commitment {
   return {
-    id: String(row.id), title: String(row.title), domain: row.domain as Domain, people: JSON.parse(String(row.people_json)), source: row.source as Commitment['source'], externalId: row.external_id ? String(row.external_id) : null,
+    id: String(row.id), title: String(row.title), domain: row.domain as Domain, people: JSON.parse(String(row.people_json)), source: row.source as Commitment['source'], externalId: row.external_id ? String(row.external_id) : null, projectId: row.project_id ? String(row.project_id) : null,
     startsAt: row.starts_at ? String(row.starts_at) : null, dueAt: row.due_at ? String(row.due_at) : null, status: row.status as Commitment['status'], createdAt: String(row.created_at), updatedAt: String(row.updated_at || row.created_at),
   }
 }
@@ -493,8 +496,8 @@ export function updateCommitment(id: string, patch: Partial<Commitment>): Commit
   const current = getCommitment(id)
   if (!current) return null
   const next = { ...current, ...patch }
-  db.prepare('UPDATE commitments SET title = ?, domain = ?, people_json = ?, starts_at = ?, due_at = ?, status = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL')
-    .run(next.title, next.domain, JSON.stringify(next.people), next.startsAt, next.dueAt, next.status, new Date().toISOString(), id)
+  db.prepare('UPDATE commitments SET title = ?, domain = ?, people_json = ?, starts_at = ?, due_at = ?, status = ?, project_id = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL')
+    .run(next.title, next.domain, JSON.stringify(next.people), next.startsAt, next.dueAt, next.status, next.projectId ?? null, new Date().toISOString(), id)
   return getCommitment(id)
 }
 
@@ -526,7 +529,7 @@ export function listCommitments(domain?: Domain): Commitment[] {
     ? db.prepare('SELECT * FROM commitments WHERE domain = ? AND deleted_at IS NULL ORDER BY COALESCE(starts_at, due_at, created_at)').all(domain)
     : db.prepare('SELECT * FROM commitments WHERE deleted_at IS NULL ORDER BY COALESCE(starts_at, due_at, created_at)').all()
   return (rows as Record<string, unknown>[]).map((row) => ({
-    id: String(row.id), title: String(row.title), domain: row.domain as Domain, people: JSON.parse(String(row.people_json)), source: row.source as Commitment['source'], externalId: row.external_id ? String(row.external_id) : null,
+    id: String(row.id), title: String(row.title), domain: row.domain as Domain, people: JSON.parse(String(row.people_json)), source: row.source as Commitment['source'], externalId: row.external_id ? String(row.external_id) : null, projectId: row.project_id ? String(row.project_id) : null,
     startsAt: row.starts_at ? String(row.starts_at) : null, dueAt: row.due_at ? String(row.due_at) : null, status: row.status as Commitment['status'], createdAt: String(row.created_at), updatedAt: String(row.updated_at || row.created_at),
   }))
 }
@@ -629,5 +632,8 @@ export function addAudit(input: { requestId?: string; action: string; summary: s
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'internal', ?, ?, ?, 'recorded')`)
     .run(randomUUID(), input.requestId ?? null, input.action, '[redacted; SHA-256 recorded]', input.source, createdAt, actorType, input.actorId ?? (actorType === 'human' ? 'diego-local' : input.source), input.action, inputHash, approved ? input.actorId ?? 'diego-local' : null, approved ? createdAt : null)
 }
+
+// Shared handle for feature modules that own their own tables (see projects.ts).
+export function database(): DatabaseSync { return db }
 
 export function closeDatabase(): void { db.close() }
