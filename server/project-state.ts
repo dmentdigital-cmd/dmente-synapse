@@ -66,7 +66,7 @@ export function parseProjectState(markdown: string): ParsedProjectState {
     if (pair) {
       const key = plain(pair[1]).replace(/[^a-z]/g, '')
       const value = cleanInline(pair[2])
-      if (key === 'estadogeneral' || key === 'estado' || key === 'status' || key === 'estadoactual') state.generalStatus ??= value.slice(0, 600)
+      if (key === 'estadogeneral' || key === 'estado' || key === 'status' || key === 'estadoactual' || key === 'fase') state.generalStatus ??= value.slice(0, 600)
       else if (key === 'progreso' || key === 'avance' || key === 'progresogeneral') {
         const percent = value.match(/(\d{1,3})\s*%/)
         if (percent) { if (state.progress === null) state.progress = Math.min(100, Number(percent[1])) } else if (key === 'progresogeneral') state.generalStatus ??= value.slice(0, 600)
