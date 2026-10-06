@@ -3,6 +3,13 @@ import { ArrowRight, Fingerprint, LockKeyhole } from 'lucide-react'
 
 type Props = { onAuthenticated: (userId: string, role?: 'viewer' | 'operator' | 'approver' | 'admin', mfaEnabled?: boolean, mfaManaged?: boolean, domains?: string[]) => void }
 
+function passkeyErrorMessage(cause: unknown): string {
+  if (cause instanceof Error && (cause.name === 'NotAllowedError' || /timed out or was not allowed/i.test(cause.message))) {
+    return 'El teléfono no encontró una passkey disponible o se canceló la verificación. Si la registraste en otro dispositivo, elígelo en “Usar otro dispositivo”. Para usar la huella de este teléfono, inicia sesión con contraseña y 2FA y registra una passkey aquí en Configuración.'
+  }
+  return cause instanceof Error ? cause.message : 'No se pudo iniciar sesión con passkey.'
+}
+
 export function LoginScreen({ onAuthenticated }: Props) {
   const [username, setUsername] = useState('diego')
   const [password, setPassword] = useState('')
@@ -25,7 +32,7 @@ export function LoginScreen({ onAuthenticated }: Props) {
       if (!verifyResponse.ok || !data.userId) throw new Error(data.error ?? 'No se pudo verificar la passkey.')
       onAuthenticated(data.userId, data.role, data.mfaEnabled, data.mfaManaged, data.domains)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'No se pudo iniciar sesión con passkey.')
+      setError(passkeyErrorMessage(cause))
     } finally {
       setPasskeyBusy(false)
     }
