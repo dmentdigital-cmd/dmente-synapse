@@ -8,6 +8,7 @@ import { AgendaErrorBoundary } from './components/AgendaErrorBoundary'
 import { OperationalAgenda } from './components/OperationalAgenda'
 import { LoginScreen } from './components/LoginScreen'
 import { OfficeStage } from './components/OfficeStage'
+import { ProjectsErrorBoundary } from './components/projects/ProjectsErrorBoundary'
 import { RequestsPanel } from './components/RequestsPanel'
 import { RequestsErrorBoundary } from './components/RequestsErrorBoundary'
 import { SettingsPanel } from './components/SettingsPanel'
@@ -16,10 +17,11 @@ import type { AgentId, Message, Section } from './types'
 import './styles.css'
 
 const LeadsPanel = lazy(() => import('./components/LeadsPanel').then((module) => ({ default: module.LeadsPanel })))
+const ProjectsPanel = lazy(() => import('./components/ProjectsPanel').then((module) => ({ default: module.ProjectsPanel })))
 
 type ApiMessage = { id: string; direction: 'user' | 'agent'; text: string; createdAt: string }
 export type ApiRequest = { id: string; agentId: AgentId; title: string; domain: string; projectId: string | null; priority: 'low' | 'normal' | 'high' | 'urgent'; status: 'pending' | 'in_progress' | 'waiting_approval' | 'blocked' | 'done' | 'cancelled'; riskLevel: 'low' | 'medium' | 'high'; requiresApproval: boolean; approvalConfirmed: boolean; startsAt: string | null; dueAt: string | null; nextAction: string; obsidianNote?: string | null; sourcePath: string | null; sourceDriveFolder: string | null }
-export type AgendaItem = ApiRequest & { id: string; kind: 'request' | 'commitment'; requestId: string | null; commitmentId: string | null; createdAt: string; updatedAt: string; lastStatusComment?: { comment: string | null; createdAt: string } | null }
+export type AgendaItem = ApiRequest & { id: string; kind: 'request' | 'commitment' | 'milestone'; requestId: string | null; commitmentId: string | null; createdAt: string; updatedAt: string; lastStatusComment?: { comment: string | null; createdAt: string } | null }
 type AuthRole = 'viewer' | 'operator' | 'approver' | 'admin'
 type AuthState = { configured: boolean; authenticated: boolean; mfaRequired?: boolean; mfaEnabled?: boolean; mfaManaged?: boolean; userId?: string; role?: AuthRole; domains?: string[] }
 
@@ -59,6 +61,8 @@ function App({ onLogout, role, userId, domains, mfaEnabled, mfaManaged, mfaEnrol
   const canViewLeads = !mfaEnrollmentRequired && (role === 'admin' || Boolean(domains?.includes('sales')))
   const pendingCount = Object.values(pending).filter(Boolean).length
   const orderedAgents = useMemo(() => Object.entries(agents) as [AgentId, typeof agents[AgentId]][], [])
+  // Project milestones show in the Agenda only; the office keeps reacting to tasks alone.
+  const officeItems = useMemo(() => agendaItems.filter((item) => item.kind !== 'milestone'), [agendaItems])
 
   useEffect(() => {
     const syncSection = () => setSection(sectionFromHash(window.location.hash))
@@ -101,7 +105,7 @@ function App({ onLogout, role, userId, domains, mfaEnabled, mfaManaged, mfaEnrol
         const agenda = await agendaResponse.json() as { items: AgendaItem[] }
         const apiMessages = await messagesResponse.json() as { messages: ApiMessage[] }
         if (cancelled) return
-        const activeAgents = agenda.items.filter((item) => item.status !== 'done' && item.status !== 'cancelled').map((item) => item.agentId)
+        const activeAgents = agenda.items.filter((item) => item.kind !== 'milestone' && item.status !== 'done' && item.status !== 'cancelled').map((item) => item.agentId)
         setAgendaItems(agenda.items)
         setRequests(agenda.items.filter((item) => item.kind === 'request'))
         setPending((current) => orderedAgents.reduce((next, [id]) => ({ ...next, [id]: activeAgents.includes(id) }), current))
@@ -185,8 +189,8 @@ function App({ onLogout, role, userId, domains, mfaEnabled, mfaManaged, mfaEnrol
   return <div className="app-shell">
     <Topbar section={section} pendingCount={pendingCount} canViewLeads={canViewLeads} setSection={openSection} setActiveAgent={setActiveAgent} onAddAgent={() => setAddAgentOpen(true)} onLogout={onLogout} />
     <main className="workspace">
-      {section === 'leads' && canViewLeads ? <Suspense fallback={<div className="leads-empty" role="status">Cargando vista de leads...</div>}><LeadsPanel onClose={() => openSection('office')} /></Suspense> : section === 'agenda' ? <AgendaErrorBoundary onClose={() => openSection('office')}><OperationalAgenda items={agendaItems} loadError={apiError} onCreate={createAgendaItem} onEdit={editAgendaItem} onDelete={deleteAgendaItem} onUpdateStatus={updateAgendaStatus} onApprove={approveAgendaItem} onClose={() => openSection('office')} /></AgendaErrorBoundary> : <>
-        <OfficeStage activeAgent={activeAgent} pending={pending} processing={processing} pendingCount={pendingCount} agendaItems={agendaItems} setActiveAgent={setActiveAgent} />
+      {section === 'leads' && canViewLeads ? <Suspense fallback={<div className="leads-empty" role="status">Cargando vista de leads...</div>}><LeadsPanel onClose={() => openSection('office')} /></Suspense> : section === 'projects' && !mfaEnrollmentRequired ? <ProjectsErrorBoundary onClose={() => openSection('office')}><Suspense fallback={<div className="leads-empty" role="status">Cargando proyectos...</div>}><ProjectsPanel role={role} onClose={() => openSection('office')} /></Suspense></ProjectsErrorBoundary> : section === 'agenda' ? <AgendaErrorBoundary onClose={() => openSection('office')}><OperationalAgenda items={agendaItems} loadError={apiError} onCreate={createAgendaItem} onEdit={editAgendaItem} onDelete={deleteAgendaItem} onUpdateStatus={updateAgendaStatus} onApprove={approveAgendaItem} onClose={() => openSection('office')} /></AgendaErrorBoundary> : <>
+        <OfficeStage activeAgent={activeAgent} pending={pending} processing={processing} pendingCount={pendingCount} agendaItems={officeItems} setActiveAgent={setActiveAgent} />
         {section === 'agents' ? <AgentsPanel setActiveAgent={setActiveAgent} close={() => openSection('office')} /> : section === 'requests' ? <RequestsErrorBoundary onClose={() => openSection('office')}><RequestsPanel requests={requests} setActiveAgent={setActiveAgent} close={() => openSection('office')} /></RequestsErrorBoundary> : section === 'settings' ? <SettingsPanel onLogout={onLogout} installed={installed} canInstall={Boolean(installPrompt)} onInstall={() => void installApp()} role={mfaEnrollmentRequired ? undefined : role} userId={userId} mfaEnabled={mfaEnabled} mfaManaged={mfaManaged} /> : chatMinimized ? <ChatDock agent={agent} pending={pending[activeAgent]} restore={() => setChatMinimized(false)} /> : <ChatPanel agent={agent} messages={messages[activeAgent] as Message[]} pending={pending[activeAgent]} processing={processing[activeAgent]} apiReady={apiReady} draft={draft} setDraft={setDraft} sendMessage={sendMessage} minimize={() => setChatMinimized(true)} togglePending={() => setPending((current) => ({ ...current, [activeAgent]: !current[activeAgent] }))} />}
       </>}
     </main>
@@ -203,6 +207,7 @@ if ('serviceWorker' in navigator) {
 
 function sectionFromHash(hash: string): Section {
   const section = hash.replace(/^#/, '')
+  if (section === 'projects' || section.startsWith('projects/')) return 'projects'
   return section === 'agents' || section === 'requests' || section === 'agenda' || section === 'leads' || section === 'settings' ? section : 'office'
 }
 

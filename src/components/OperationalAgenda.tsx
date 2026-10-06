@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from 'react'
-import { AlertTriangle, ArrowDownWideNarrow, CalendarClock, Check, CheckCheck, Circle, Clock3, ExternalLink, Filter, Pencil, Plus, Save, ShieldAlert, Sparkles, Trash2, X } from 'lucide-react'
+import { AlertTriangle, ArrowDownWideNarrow, CalendarClock, Check, CheckCheck, Circle, Clock3, ExternalLink, Filter, Flag, Pencil, Plus, Save, ShieldAlert, Sparkles, Trash2, X } from 'lucide-react'
 import { agents } from '../agents'
 import type { AgendaItem } from '../main'
 import type { AgentId } from '../types'
@@ -269,14 +269,14 @@ export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete
     return <article className={`agenda-task priority-${item.priority} ${overdue ? 'is-overdue' : ''}`} key={item.id}>
       <div className="agenda-task-identity">
         <span className="agenda-agent-avatar" style={{ '--agent-color': person.color } as CSSProperties}><img src={person.normal} alt="" /></span>
-        <div className="agenda-task-heading"><strong>{item.title}</strong><div className="agenda-tags"><span className={`agenda-priority ${item.priority}`}>{priorityLabels[item.priority] ?? item.priority}</span><span className={`agenda-domain domain-${item.domain}`}>{domainLabels[item.domain] ?? item.domain}</span>{item.requiresApproval && <span className={item.approvalConfirmed ? 'agenda-approval approved' : 'agenda-approval'}>{item.approvalConfirmed ? 'Aprobación registrada' : 'Requiere aprobación'}</span>}</div></div>
-        <span className={`agenda-risk ${item.riskLevel}`} title={`Riesgo ${item.riskLevel}`}><i />Riesgo {item.riskLevel === 'low' ? 'bajo' : item.riskLevel === 'medium' ? 'medio' : 'alto'}</span>
+        <div className="agenda-task-heading"><strong>{item.title}</strong><div className="agenda-tags">{item.kind === 'milestone' ? <span className="agenda-milestone-tag"><Flag size={10} />Hito</span> : <span className={`agenda-priority ${item.priority}`}>{priorityLabels[item.priority] ?? item.priority}</span>}<span className={`agenda-domain domain-${item.domain}`}>{domainLabels[item.domain] ?? item.domain}</span>{item.requiresApproval && <span className={item.approvalConfirmed ? 'agenda-approval approved' : 'agenda-approval'}>{item.approvalConfirmed ? 'Aprobación registrada' : 'Requiere aprobación'}</span>}</div></div>
+        {item.kind !== 'milestone' && <span className={`agenda-risk ${item.riskLevel}`} title={`Riesgo ${item.riskLevel}`}><i />Riesgo {item.riskLevel === 'low' ? 'bajo' : item.riskLevel === 'medium' ? 'medio' : 'alto'}</span>}
       </div>
       <div className="agenda-task-meta"><span><CalendarClock size={14} />{formatSchedule(item)}</span><span><Sparkles size={13} />{person.name}</span>{item.projectId && <span className="agenda-project">{item.projectId}</span>}{overdue && <span className="agenda-overdue"><AlertTriangle size={13} />Atrasada</span>}</div>
       {item.nextAction && <p className="agenda-next-action"><b>Siguiente:</b> {item.nextAction}</p>}
       {item.lastStatusComment?.comment && <p className="agenda-status-comment"><b>Comentario del cambio:</b> {item.lastStatusComment.comment}</p>}
       {item.sourcePath && <div className="agenda-source"><ExternalLink size={12} />{item.sourcePath.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? 'Referencia del proyecto'}</div>}
-      <div className="agenda-task-footer"><span className={`agenda-status ${item.status}`}><Circle size={8} fill="currentColor" />{statusLabels[item.status] ?? item.status}</span><div className="agenda-task-actions">
+      <div className="agenda-task-footer"><span className={`agenda-status ${item.status}`}><Circle size={8} fill="currentColor" />{statusLabels[item.status] ?? item.status}</span>{item.kind === 'milestone' ? <div className="agenda-task-actions"><button className="agenda-edit-task" aria-label={`Ver el cronograma de ${item.title}`} onClick={() => { window.location.hash = `#projects/${encodeURIComponent(item.projectId ?? '')}` }}><Flag size={14} />Ver cronograma</button></div> : <div className="agenda-task-actions">
         {overdue && <button className="agenda-reschedule-task" disabled={busyId === item.id} aria-label={`Reprogramar ${item.title} esta semana`} onClick={() => openReschedule(item)}><CalendarClock size={14} />Esta semana</button>}
         <button className="agenda-edit-task" disabled={busyId === item.id} aria-label={`Editar ${item.title}`} onClick={() => openEditor(item)}><Pencil size={14} />Editar</button>
         <button className="agenda-delete-task" disabled={busyId === item.id} aria-label={`Eliminar ${item.title}`} onClick={() => { setError(''); setDeleteItem(item) }}><Trash2 size={14} />Eliminar</button>
@@ -284,7 +284,7 @@ export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete
         <label className="agenda-status-control"><ArrowDownWideNarrow size={13} /><select aria-label={`Cambiar estado de ${item.title}`} value={item.status} disabled={busyId === item.id} onChange={(event) => { const nextStatus = event.target.value as AgendaItem['status']; if (nextStatus !== item.status) setStatusEdit({ item, status: nextStatus, comment: '' }) }}>
           {(['pending', 'in_progress', 'waiting_approval', 'blocked', 'done', 'cancelled'] as AgendaItem['status'][]).map((next) => <option key={next} value={next} disabled={next === 'done' && item.requiresApproval && !item.approvalConfirmed}>{statusLabels[next]}</option>)}
         </select></label>
-      </div></div>
+      </div>}</div>
     </article>
   }
 
@@ -347,7 +347,7 @@ export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete
         <label className="agenda-field">Riesgo<select value={newItem.riskLevel} onChange={(event) => setNewItem({ ...newItem, riskLevel: event.target.value as AgendaItem['riskLevel'] })}><option value="low">Bajo</option><option value="medium">Medio</option><option value="high">Alto</option></select></label></>}
         <label className="agenda-field">Inicia<input name="startsAt" type="datetime-local" value={newItem.startsAt} onChange={(event) => setNewItem({ ...newItem, startsAt: event.target.value })} /></label>
         <label className="agenda-field">Vence<input name="dueAt" type="datetime-local" value={newItem.dueAt} onChange={(event) => setNewItem({ ...newItem, dueAt: event.target.value })} /></label>
-        {editingItem?.kind !== 'commitment' && <><label className="agenda-field agenda-field-wide">Proyecto<input maxLength={120} value={newItem.projectId} onChange={(event) => setNewItem({ ...newItem, projectId: event.target.value })} placeholder="ID del proyecto (opcional)" /></label>
+        {editingItem?.kind !== 'commitment' && <><label className="agenda-field agenda-field-wide">Proyecto<input maxLength={120} list="agenda-project-options" value={newItem.projectId} onChange={(event) => setNewItem({ ...newItem, projectId: event.target.value })} placeholder="ID del proyecto (opcional)" /><datalist id="agenda-project-options">{projects.map((item) => <option key={item} value={item} />)}</datalist></label>
         <label className="agenda-field agenda-field-wide">Siguiente acción<textarea maxLength={2000} rows={2} value={newItem.nextAction} onChange={(event) => setNewItem({ ...newItem, nextAction: event.target.value })} placeholder="Primer paso concreto (opcional)" /></label></>}
       </div>
       {editingItem?.kind !== 'commitment' && <label className="agenda-approval-toggle"><input type="checkbox" disabled={editingItem?.requiresApproval} checked={newItem.requiresApproval} onChange={(event) => setNewItem({ ...newItem, requiresApproval: event.target.checked })} /><span><strong>Requiere aprobación de Diego</strong><small>La tarea quedará en espera hasta aprobarla. Editar una tarea aprobada requiere revisarla de nuevo.</small></span></label>}

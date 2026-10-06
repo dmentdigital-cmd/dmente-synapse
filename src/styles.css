@@ -233,3 +233,82 @@ button { cursor: pointer; }
 @media (max-width: 700px) { .leads-panel { padding: 16px 12px; }.leads-heading { align-items: flex-start; flex-direction: column; gap: 13px; }.leads-heading-actions { justify-content: flex-start; }.leads-layout { grid-template-columns: 1fr; }.lead-detail-grid { gap: 12px; } }
 @media (max-width: 620px) { .leads-panel { min-height: calc(100vh - 125px); }.main-nav .nav-item { padding: 0 3px; font-size: 7px; }.leads-heading-actions button { padding: 7px 8px; }.lead-row-top small { font-size: 8px; } }
 .deployment-version p, .deployment-version small { display: block; margin: 8px 0 0; color: rgba(248,250,252,.58); font-size: 9px; line-height: 1.45; }
+
+/* Projects: list with traffic light, milestone schedule and project log. Reuses the leads panel shell. */
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.projects-panel .leads-heading-actions .projects-primary { color: #04131b; border-color: rgba(43,235,210,.25); background: var(--teal); }
+.projects-panel .leads-heading-actions .projects-primary:hover { background: #8af9ec; }
+.projects-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 16px 2px 0; }
+.projects-filters { margin-left: auto; padding: 0; }
+.projects-filters select { font-size: 11px; }
+.projects-layout { grid-template-columns: minmax(300px, .78fr) minmax(0, 1.5fr); }
+.project-detail-slot { min-width: 0; scroll-margin-top: 12px; }
+.project-health { display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px; border-radius: 99px; color: rgba(248,250,252,.8); background: rgba(248,250,252,.06); font-size: 11px; font-weight: 700; white-space: nowrap; }
+.project-health i, .project-dot { display: inline-block; width: 9px; height: 9px; flex: 0 0 9px; border-radius: 50%; background: rgba(226,238,248,.28); }
+.project-health.rojo { color: #fda4af; background: rgba(251,113,133,.12); } .project-health.rojo i, .project-dot.rojo { background: #fb7185; box-shadow: 0 0 0 3px rgba(251,113,133,.16); }
+.project-health.amarillo { color: #f6c778; background: rgba(246,186,97,.11); } .project-health.amarillo i, .project-dot.amarillo { background: #f6ba61; box-shadow: 0 0 0 3px rgba(246,186,97,.15); }
+.project-health.verde { color: #7ee6ca; background: rgba(52,211,153,.1); } .project-health.verde i, .project-dot.verde { background: #34d399; box-shadow: 0 0 0 3px rgba(52,211,153,.14); }
+.project-row { position: relative; }
+.project-row .lead-row-top strong { display: inline-flex; align-items: center; gap: 9px; min-width: 0; }
+.project-row .lead-row-top small { font-size: 10px; }
+.project-row .lead-row-bottom { color: rgba(248,250,252,.55); } .project-row .lead-row-bottom em { color: #fda4af; font-size: 10px; font-weight: 700; }
+.project-row-progress { display: block; height: 3px; overflow: hidden; border-radius: 3px; background: rgba(248,250,252,.08); } .project-row-progress i { display: block; height: 100%; border-radius: 3px; background: var(--teal); }
+.project-group-toggle { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; width: 100%; padding: 14px 16px; border: 0; border-top: 1px solid var(--line); color: rgba(248,250,252,.8); background: rgba(129,140,248,.06); font-size: 12px; font-weight: 700; text-align: left; }
+.project-group-toggle small { flex-basis: 100%; padding-left: 22px; color: rgba(248,250,252,.45); font-size: 10px; font-weight: 500; }
+.project-group-toggle:hover { background: rgba(129,140,248,.12); }
+.project-empty { display: grid; justify-items: center; align-content: center; gap: 7px; min-height: 190px; padding: 26px 20px; color: rgba(248,250,252,.58); font-size: 12px; line-height: 1.5; text-align: center; }
+.project-empty svg { color: var(--teal); } .project-empty strong { color: var(--ink); font-size: 14px; } .project-empty code { padding: 1px 5px; border-radius: 5px; color: var(--teal); background: rgba(43,235,210,.08); font-size: 11px; overflow-wrap: anywhere; }
+.project-empty-list { min-height: 150px; }
+.project-detail h2 { overflow-wrap: anywhere; }
+.project-code { padding: 4px 9px; border: 1px solid rgba(129,140,248,.3); border-radius: 7px; color: #c7d2fe; background: rgba(129,140,248,.1); font-size: 10px; font-weight: 800; letter-spacing: .06em; }
+.project-detail-status { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin: 12px 0 0; }
+.project-status-control { display: inline-flex; align-items: center; gap: 7px; color: rgba(248,250,252,.5); font-size: 10px; font-weight: 700; }
+.project-status-control select, .milestone-status { border: 1px solid rgba(255,255,255,.12); border-radius: 8px; padding: 7px 9px; color: rgba(248,250,252,.86); background: #0a1b2c; font: inherit; font-size: 11px; }
+.project-status-control select:focus-visible, select.milestone-status:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+.project-status-label { padding: 5px 10px; border-radius: 99px; color: rgba(248,250,252,.8); background: rgba(248,250,252,.07); font-size: 11px; font-weight: 700; }
+.project-classify { display: grid; gap: 7px; margin-top: 16px; padding: 14px 16px; border: 1px solid rgba(129,140,248,.26); border-radius: 11px; background: rgba(129,140,248,.08); font-size: 12px; line-height: 1.5; }
+.project-classify strong { color: #c7d2fe; } .project-classify span { color: rgba(248,250,252,.68); } .project-classify div { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.project-reasons { display: grid; gap: 6px; margin: 16px 0 0; padding: 0; list-style: none; font-size: 12px; }
+.project-reasons li { display: flex; align-items: center; gap: 7px; color: #f6c778; } .project-reasons.rojo li { color: #fda4af; }
+.project-progress { display: flex; align-items: center; gap: 10px; margin-top: 18px; }
+.project-progress > span { flex: 1; height: 8px; overflow: hidden; border-radius: 8px; background: rgba(248,250,252,.09); } .project-progress > span i { display: block; height: 100%; border-radius: 8px; background: linear-gradient(90deg, var(--teal), var(--indigo)); transition: width .3s cubic-bezier(.2,0,0,1); }
+.project-progress b { color: var(--ink); font-size: 14px; } .project-progress small, .project-progress-empty { color: rgba(248,250,252,.5); font-size: 11px; }
+.project-progress-empty { display: block; margin-top: 18px; }
+.project-next-action { margin: 16px 0 0; padding: 12px 14px; border-left: 2px solid var(--teal); border-radius: 0 9px 9px 0; color: rgba(248,250,252,.8); background: rgba(43,235,210,.06); font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; } .project-next-action b { color: var(--teal); }
+.project-tabs { margin-top: 20px; border-bottom: 1px solid var(--line); } .project-tabs button { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+.project-tab { padding-top: 16px; }
+.project-tab-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin: 0 0 12px; } .project-tab > .project-tab-actions:last-child { margin: 16px 0 0; }
+.project-phase + .project-phase { margin-top: 18px; }
+.project-phase h3 { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 0 0 8px; color: rgba(248,250,252,.62); font-size: 10px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; } .project-phase h3 small { color: rgba(248,250,252,.4); font-size: 10px; letter-spacing: 0; text-transform: none; }
+.milestone-list, .project-task-list, .project-update-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.milestone-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid rgba(248,250,252,.09); border-left: 3px solid rgba(165,180,252,.6); border-radius: 10px; background: rgba(255,255,255,.025); }
+.milestone-row.in_progress { border-left-color: #7dd3fc; } .milestone-row.blocked { border-left-color: #fda4af; } .milestone-row.done { border-left-color: #34d399; } .milestone-row.cancelled { border-left-color: rgba(226,238,248,.25); opacity: .62; } .milestone-row.is-late { border-left-color: #fb7185; background: rgba(251,113,133,.05); }
+.milestone-body { display: grid; gap: 5px; min-width: 0; } .milestone-body strong { color: rgba(248,250,252,.94); font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; } .milestone-row.done .milestone-body strong { color: rgba(248,250,252,.66); }
+.milestone-meta { display: inline-flex; align-items: center; gap: 6px; color: rgba(248,250,252,.58); font-size: 11px; }
+.milestone-late { display: inline-flex; align-items: center; gap: 5px; color: #fda4af; font-size: 11px; font-weight: 700; } .milestone-done { color: #7ee6ca; font-size: 11px; }
+.milestone-body p { margin: 2px 0 0; color: rgba(248,250,252,.6); font-size: 11px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.milestone-actions { display: flex; align-items: center; flex: 0 0 auto; gap: 6px; } .milestone-actions .agenda-edit-task, .milestone-actions .agenda-delete-task { padding: 7px 9px; }
+span.milestone-status { display: inline-block; }
+.project-task-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 14px; border: 1px solid rgba(248,250,252,.09); border-radius: 10px; background: rgba(255,255,255,.025); }
+.project-task-list li div { display: grid; gap: 4px; min-width: 0; } .project-task-list strong { color: rgba(248,250,252,.92); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; } .project-task-list li div span { color: rgba(248,250,252,.52); font-size: 11px; }
+.project-task-list li.is-closed { opacity: .58; } .project-task-list .agenda-status { flex: 0 0 auto; font-size: 10px; }
+.project-update-form { display: grid; grid-template-columns: 150px minmax(0, 1fr) auto; align-items: end; gap: 10px; margin-bottom: 14px; padding: 12px; border: 1px solid rgba(248,250,252,.09); border-radius: 11px; background: rgba(2,6,23,.3); }
+.project-update-form .agenda-new-task { min-height: 37px; } .project-update-form .agenda-new-task:disabled { opacity: .5; cursor: not-allowed; }
+.project-update { display: grid; gap: 7px; justify-items: start; padding: 12px 14px; border: 1px solid rgba(248,250,252,.09); border-radius: 10px; background: rgba(255,255,255,.025); }
+.project-update.is-open { border-color: rgba(251,113,133,.34); background: rgba(251,113,133,.06); }
+.project-update-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; } .project-update-top small { color: rgba(248,250,252,.45); font-size: 10px; }
+.project-update-kind { padding: 3px 8px; border-radius: 99px; color: #7dd3fc; background: rgba(125,211,252,.1); font-size: 10px; font-weight: 800; }
+.project-update.bloqueo .project-update-kind { color: #7ee6ca; background: rgba(52,211,153,.1); } .project-update.bloqueo.is-open .project-update-kind { color: #fda4af; background: rgba(251,113,133,.14); }
+.project-update.riesgo .project-update-kind { color: #f6c778; background: rgba(246,186,97,.11); } .project-update.decision .project-update-kind { color: #c7d2fe; background: rgba(129,140,248,.13); } .project-update.leccion .project-update-kind { color: #d8b4fe; background: rgba(192,132,252,.12); }
+.project-update p { margin: 0; color: rgba(248,250,252,.86); font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; } .project-update-resolution { color: rgba(248,250,252,.62) !important; } .project-update-resolution b { color: #7ee6ca; }
+.project-modal .field-optional { margin-left: 4px; color: rgba(226,238,248,.4); font-size: 9px; font-weight: 500; }
+.project-modal .agenda-field { display: grid; align-content: start; } .project-form-grid { margin-top: 11px; }
+.project-field-note { align-self: end; padding: 9px 0; color: rgba(226,238,248,.45); font-size: 10px; }
+.project-modal footer .agenda-delete-task { min-height: 0; padding: 8px 11px; font-size: 10px; font-weight: 700; }
+.agenda-milestone-tag { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 99px; color: #c7d2fe; background: rgba(129,140,248,.16); font-size: 9px; font-weight: 800; }
+.projects-panel button:focus-visible, .project-modal button:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+@media (max-width: 900px) { .projects-layout { grid-template-columns: minmax(240px,.8fr) minmax(0,1.2fr); } .project-update-form { grid-template-columns: 1fr; align-items: stretch; } }
+@media (max-width: 700px) { .projects-layout { grid-template-columns: 1fr; } .projects-filters { margin-left: 0; width: 100%; } .projects-filters select { flex: 1; max-width: none; min-height: 40px; } .milestone-row { flex-direction: column; } .milestone-actions { width: 100%; } .milestone-actions select { flex: 1; min-height: 44px; } .milestone-actions .agenda-edit-task, .milestone-actions .agenda-delete-task { min-width: 44px; min-height: 44px; } .project-status-control select { min-height: 40px; } .project-tabs button { padding: 13px 10px; } }
+/* Seven sections no longer fit a narrow phone at a readable size, so the bottom bar scrolls sideways instead of shrinking the labels. */
+@media (max-width: 620px) { .main-nav { justify-content: flex-start; overflow-x: auto; scrollbar-width: none; } .main-nav::-webkit-scrollbar { display: none; } .main-nav .nav-item { flex: 1 0 auto; min-width: 46px; } .projects-panel { min-height: calc(100vh - 125px); } }
+@media (prefers-reduced-motion: reduce) { .project-progress > span i { transition: none; } }
