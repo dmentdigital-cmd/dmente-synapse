@@ -336,3 +336,49 @@ test('goals, the cut-off report and finance: figures are computed by the server 
   assert.equal((await api(`${route}/metrics/${metric.id}`, 'DELETE')).data.deleted, true)
   assert.equal((await api(route)).data.metrics.length, 0)
 })
+
+test('a status file loads the project: creates or confirms it, follows its blocker and never duplicates', async () => {
+  await restart()
+  const file = (blocker: string, extra = '') => `# Estado del Proyecto : Can & Friends\n\n**Última actualización:** 2026-10-05\n**Estado general:** Campaña activa.\n**Progreso:** 40%\n\n## En progreso\n\n- Tracking UTM${extra}\n\n## Pendiente\n\n- Reporte GA4\n\n## Próximos pasos\n\n1. Revisar anuncios\n\n## Synapse\n\nprojectId: can-friends-grooming-studio\nbloqueoPrincipal: ${blocker}\nproximaAccion: Corregir parámetros de URL.\n`
+  // The id was only "por clasificar" (seeded marketing task); the MCP token cannot write in marketing.
+  assert.ok((await mcp('synapse_import_project_state', { markdown: file('Falta acceso a Ads Manager') })).error)
+  assert.ok((await mcp('synapse_import_project_state', {})).error)
+  assert.equal((await mcp('synapse_import_project_state', { markdown: file('x') }, 'read')).error.code, -32003)
+
+  const args = { projectId: 'estado-fixture', domain: 'agency', sourcePath: 'C:\\proyectos\\can_friends\\estado_can_friends.md' }
+  const first = (await mcp('synapse_import_project_state', { ...args, markdown: file('Falta acceso a Ads Manager') })).result.structuredContent
+  assert.deepEqual([first.created, first.changed], [true, true])
+  assert.equal(first.project.id, 'estado-fixture')
+  assert.equal(first.project.name, 'Can & Friends')
+  assert.equal(first.project.status, 'en_curso')
+  assert.equal(first.project.nextAction, 'Corregir parámetros de URL.')
+  assert.deepEqual([first.project.progress, first.project.progressSource], [40, 'estado'])
+  assert.equal(first.project.stateFile.generalStatus, 'Campaña activa.')
+  // Followed through its file: the open blocker is the alert, not the missing schedule.
+  assert.deepEqual(first.project.healthReasons, ['1 bloqueo abierto'])
+  assert.deepEqual(first.state.sections, { completed: [], inProgress: ['Tracking UTM'], pending: ['Reporte GA4'], nextSteps: ['Revisar anuncios'] })
+
+  const again = (await mcp('synapse_import_project_state', { ...args, markdown: file('Falta acceso a Ads Manager') })).result.structuredContent
+  assert.deepEqual([again.created, again.changed, again.project.openBlockers], [false, false, 1])
+  const replaced = (await mcp('synapse_import_project_state', { ...args, markdown: file('El cliente no aprueba el presupuesto', '\n- Nuevos creativos') })).result.structuredContent
+  assert.deepEqual([replaced.changed, replaced.project.openBlockers], [true, 1])
+  const detail = (await api('/api/projects/estado-fixture')).data
+  assert.deepEqual(detail.updates.map((update: any) => [update.text, Boolean(update.resolvedAt)]).sort(), [['El cliente no aprueba el presupuesto', false], ['Falta acceso a Ads Manager', true]])
+  assert.deepEqual(detail.state.sections.inProgress, ['Tracking UTM', 'Nuevos creativos'])
+  assert.equal(detail.state.sourcePath, args.sourcePath)
+  // The sync script sends the state already read; no blocker in it clears the alert.
+  const cleared = (await mcp('synapse_import_project_state', { ...args, state: { title: 'Can & Friends', generalStatus: 'Campaña estable', progress: 55, sections: { pending: ['Reporte GA4', 7, ''] } } })).result.structuredContent
+  assert.deepEqual([cleared.project.openBlockers, cleared.project.health, cleared.project.progress], [0, 'verde', 55])
+  assert.deepEqual(cleared.state.sections.pending, ['Reporte GA4'])
+  // A milestone schedule, once it exists, is what measures progress.
+  await api('/api/projects/estado-fixture/milestones', 'POST', { title: 'Lanzar campaña', dueAt: at(10), status: 'in_progress' })
+  const withSchedule = (await api('/api/projects/estado-fixture')).data.project
+  assert.deepEqual([withSchedule.progress, withSchedule.progressSource], [0, 'hitos'])
+  assert.match((await api('/api/projects/estado-fixture/report')).data.markdown, /Estado general \(archivo de estado\):\*\* Campaña estable/)
+
+  // An owner session can confirm the unclassified id straight from its file.
+  assert.equal((await api('/api/projects/can-friends-grooming-studio')).data.project.status, 'por_clasificar')
+  const db = await database()
+  assert.equal((db.prepare("SELECT COUNT(*) AS total FROM audit_events WHERE action = 'project_state_imported'").get() as any).total, 3)
+  db.close()
+})

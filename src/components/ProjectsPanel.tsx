@@ -82,7 +82,7 @@ export function ProjectsPanel({ role, onClose }: { role?: Role; onClose: () => v
     return <button type="button" key={project.id} className={`lead-row project-row${selected ? ' selected' : ''}`} onClick={() => select(project.id)} aria-current={selected ? 'true' : undefined}>
       <span className="lead-row-top"><strong><i className={`project-dot ${project.health ?? 'none'}`} aria-hidden="true" />{project.name}</strong><small>{projectStatusLabels[project.status]}</small></span>
       <span className="lead-row-sub">{project.clientName ?? domainLabels[project.domain] ?? project.domain}{project.health ? ` · ${healthLabels[project.health]}` : ''}{project.openTasks ? ` · ${plural(project.openTasks, 'tarea abierta', 'tareas abiertas')}` : ''}</span>
-      <span className="lead-row-bottom"><span>{project.nextMilestone ? `Próximo: ${project.nextMilestone.title} · ${dayLabel(project.nextMilestone.dueAt)}` : project.status === 'por_clasificar' ? 'Pendiente de confirmar' : 'Sin hitos abiertos'}</span>{project.milestoneCounts.overdue > 0 && <em>{plural(project.milestoneCounts.overdue, 'atrasado', 'atrasados')}</em>}</span>
+      <span className="lead-row-bottom"><span>{project.nextMilestone ? `Próximo: ${project.nextMilestone.title} · ${dayLabel(project.nextMilestone.dueAt)}` : project.status === 'por_clasificar' ? 'Pendiente de confirmar' : project.stateFile?.generalStatus ?? 'Sin hitos abiertos'}</span>{project.milestoneCounts.overdue > 0 && <em>{plural(project.milestoneCounts.overdue, 'atrasado', 'atrasados')}</em>}</span>
       {project.progress !== null && <span className="project-row-progress" aria-hidden="true"><i style={{ width: `${project.progress}%` }} /></span>}
     </button>
   }

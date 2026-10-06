@@ -1,12 +1,12 @@
 import { useState, type ReactNode } from 'react'
-import { AlertTriangle, CalendarClock, ChartNoAxesColumn, CircleCheck, CircleDollarSign, ExternalLink, Flag, ListChecks, MessageSquareText, Pencil, Plus, Trash2 } from 'lucide-react'
+import { AlertTriangle, CalendarClock, ChartNoAxesColumn, CircleCheck, CircleDollarSign, ExternalLink, FileText, Flag, ListChecks, MessageSquareText, Pencil, Plus, Trash2 } from 'lucide-react'
 import { agents } from '../../agents'
 import type { AgentId } from '../../types'
 import { ConfirmAction, MilestoneForm, ProjectForm } from './ProjectForms'
 import { FinanceTab, GoalsTab } from './TrackingTabs'
 import { call, canWrite, dateTimeLabel, dayLabel, domainLabels, healthLabels, milestoneStatusLabels, plural, projectStatusLabels, taskStatusLabels, updateKindLabels, type Client, type Milestone, type MilestoneStatus, type ProjectDetailData, type ProjectStatus, type ProjectUpdate, type Role, type UpdateKind } from './model'
 
-type Tab = 'schedule' | 'tasks' | 'updates' | 'goals' | 'finance' | 'info'
+type Tab = 'state' | 'schedule' | 'tasks' | 'updates' | 'goals' | 'finance' | 'info'
 type Dialog =
   | { type: 'project' }
   | { type: 'milestone'; milestone?: Milestone }
@@ -28,12 +28,14 @@ export function HealthPill({ health }: { health: 'verde' | 'amarillo' | 'rojo' |
 
 export function ProgressBar({ progress, done, total }: { progress: number | null; done: number; total: number }) {
   if (progress === null) return <span className="project-progress-empty">Sin hitos todavía</span>
+  if (!total) return <div className="project-progress" role="img" aria-label={`Avance ${progress} % según el archivo de estado`}><span><i style={{ width: `${progress}%` }} /></span><b>{progress}%</b><small>según el archivo de estado</small></div>
   return <div className="project-progress" role="img" aria-label={`Avance ${progress} %: ${done} de ${plural(total, 'hito cumplido', 'hitos cumplidos')}`}><span><i style={{ width: `${progress}%` }} /></span><b>{progress}%</b><small>{done} de {total} hitos</small></div>
 }
 
 export function ProjectDetail({ detail, role, clients, onChanged, onDeleted }: Props) {
-  const { project, milestones, tasks, updates, metrics, finance } = detail
-  const [tab, setTab] = useState<Tab>('schedule')
+  const { project, milestones, tasks, updates, metrics, finance, state } = detail
+  // A project followed through its status file opens on what the file says; one with a schedule opens on it.
+  const [tab, setTab] = useState<Tab>(state && !milestones.length ? 'state' : 'schedule')
   const [dialog, setDialog] = useState<Dialog | null>(null)
   const [draft, setDraft] = useState<{ kind: UpdateKind; text: string }>({ kind: 'avance', text: '' })
   const [busy, setBusy] = useState(false)
@@ -63,6 +65,7 @@ export function ProjectDetail({ detail, role, clients, onChanged, onDeleted }: P
   }
 
   const tabs: { id: Tab; label: string; icon: ReactNode }[] = [
+    ...(state ? [{ id: 'state' as Tab, label: 'Estado', icon: <FileText size={14} /> }] : []),
     { id: 'schedule', label: `Cronograma${milestones.length ? ` · ${milestones.length}` : ''}`, icon: <Flag size={14} /> },
     { id: 'tasks', label: `Tareas${openTasks.length ? ` · ${openTasks.length}` : ''}`, icon: <ListChecks size={14} /> },
     { id: 'updates', label: `Novedades${openBlockers.length ? ` · ${plural(openBlockers.length, 'bloqueo', 'bloqueos')}` : ''}`, icon: <MessageSquareText size={14} /> },
@@ -86,6 +89,12 @@ export function ProjectDetail({ detail, role, clients, onChanged, onDeleted }: P
     {error && <div className="agenda-error" role="alert"><AlertTriangle size={15} />{error}</div>}
 
     <div className="agenda-view-tabs project-tabs" role="tablist" aria-label="Secciones del proyecto">{tabs.map((item) => <button key={item.id} type="button" role="tab" aria-selected={tab === item.id} className={tab === item.id ? 'active' : ''} onClick={() => setTab(item.id)}>{item.icon}{item.label}</button>)}</div>
+
+    {tab === 'state' && state && <section className="project-tab" aria-label="Estado según el archivo">
+      {state.generalStatus && <p className="project-next-action"><b>Estado general:</b> {state.generalStatus}</p>}
+      {([['En progreso', state.sections.inProgress], ['Pendiente', state.sections.pending], ['Próximos pasos', state.sections.nextSteps], ['Completado', state.sections.completed]] as [string, string[]][]).filter(([, items]) => items.length).map(([title, items]) => <div className="project-phase" key={title}><h3>{title}<small>{items.length}</small></h3><ul className="project-state-list">{items.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul></div>)}
+      <p className="status-comment-hint">Tomado del archivo de estado del proyecto{state.updatedLabel ? `, actualizado ${state.updatedLabel}` : ''}. Cargado en Synapse el {dateTimeLabel(state.importedAt)}.{state.sourcePath ? ` Origen: ${state.sourcePath}` : ''}</p>
+    </section>}
 
     {tab === 'schedule' && <section className="project-tab" aria-label="Cronograma">
       {writer && <div className="project-tab-actions"><button type="button" className="agenda-new-task" onClick={() => setDialog({ type: 'milestone' })}><Plus size={15} />Nuevo hito</button></div>}

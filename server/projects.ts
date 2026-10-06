@@ -1,6 +1,7 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { addAudit, database, getLatestAgendaStatusComment, listAgents, listCommitments, listPermissions, listRequests, recordAgendaStatusChange } from './db.js'
 import { computeHealth, computeProgress, isOpenMilestone, isOverdue, UPCOMING_DAYS } from './project-health.js'
+import { parseProjectState, type ParsedProjectState, type ProjectStateSections } from './project-state.js'
 import type { AgentId, Client, Domain, Milestone, MilestoneStatus, Project, ProjectHealth, ProjectStatus, ProjectUpdate, ProjectUpdateKind } from './types.js'
 
 // Projects, their milestone schedule and their running log. Requests and commitments keep pointing
@@ -101,6 +102,9 @@ export type ProjectSummary = Project & {
   silentDays: number | null
   health: ProjectHealth | null
   healthReasons: string[]
+  /** Where `progress` comes from: the milestones when there are any, otherwise the status file. */
+  progressSource: 'hitos' | 'estado' | null
+  stateFile: { generalStatus: string | null; updatedLabel: string | null; changedAt: string } | null
 }
 
 // ---------- rows ----------
@@ -310,18 +314,24 @@ function summarize(projects: Project[], actor: ProjectActor, now: number): Proje
   const updates = group(rows('SELECT * FROM project_updates').map(updateFromRow))
   const clients = new Map(rows('SELECT id, name FROM clients WHERE deleted_at IS NULL').map((client) => [String(client.id), String(client.name)]))
   const tasks = tasksByProject(actor)
+  const states = new Map(rows('SELECT project_id, general_status, updated_label, progress, changed_at FROM project_states').map((state) => [String(state.project_id), state]))
   return projects.map((project) => {
+    const state = states.get(project.id)
     const own = milestones.get(project.id) ?? []
     const log = updates.get(project.id) ?? []
     const open = own.filter((milestone) => isOpenMilestone(milestone.status)).sort((left, right) => left.dueAt.localeCompare(right.dueAt))
     const overdue = open.filter((milestone) => isOverdue(milestone, now))
     const openBlockers = log.filter((update) => update.kind === 'bloqueo' && !update.resolvedAt).length
-    const lastActivityAt = [project.updatedAt, tasks.lastTouch.get(project.id) ?? '', ...own.map((milestone) => milestone.updatedAt), ...log.flatMap((update) => [update.createdAt, update.resolvedAt ?? ''])].reduce((latest, value) => (value > latest ? value : latest), '')
-    const health = computeHealth({ status: project.status, milestones: own, openBlockers, lastActivityAt }, now)
+    const lastActivityAt = [project.updatedAt, state ? String(state.changed_at) : '', tasks.lastTouch.get(project.id) ?? '', ...own.map((milestone) => milestone.updatedAt), ...log.flatMap((update) => [update.createdAt, update.resolvedAt ?? ''])].reduce((latest, value) => (value > latest ? value : latest), '')
+    const health = computeHealth({ status: project.status, milestones: own, openBlockers, lastActivityAt, hasStateFile: Boolean(state) }, now)
+    const byMilestones = computeProgress(own)
+    const byState = state && state.progress !== null && state.progress !== undefined ? Number(state.progress) : null
     return {
       ...project,
       clientName: project.clientId ? clients.get(project.clientId) ?? null : null,
-      progress: computeProgress(own),
+      progress: byMilestones ?? byState,
+      progressSource: byMilestones !== null ? 'hitos' as const : byState !== null ? 'estado' as const : null,
+      stateFile: state ? { generalStatus: nullable(state.general_status), updatedLabel: nullable(state.updated_label), changedAt: String(state.changed_at) } : null,
       milestoneCounts: { total: own.filter((milestone) => milestone.status !== 'cancelled').length, done: own.filter((milestone) => milestone.status === 'done').length, open: open.length, overdue: overdue.length },
       nextMilestone: open[0] ? brief(open[0], now) : null,
       overdueMilestones: overdue.map((milestone) => brief(milestone, now)),
@@ -362,6 +372,7 @@ export function getProjectDetail(id: string, actor: ProjectActor, now = Date.now
     tasks: tasksByProject(actor).visible.get(id) ?? [],
     updates: rows('SELECT * FROM project_updates WHERE project_id = ? ORDER BY created_at DESC', id).map(updateFromRow),
     ...projectTracking(id, actor),
+    state: projectStateFor(id),
   }
 }
 
@@ -754,7 +765,8 @@ export function projectReport(id: string, actor: ProjectActor, range: { from?: s
     '## Estado', '',
     `- **Estado:** ${STATUS_LABELS[project.status]}${project.health ? ` · **Semáforo:** ${project.health}` : ''}`,
     ...(project.healthReasons.length ? [`- **Alertas:** ${project.healthReasons.join('; ')}`] : []),
-    `- **Avance:** ${project.progress === null ? 'sin hitos definidos' : `${project.progress} % (${project.milestoneCounts.done} de ${project.milestoneCounts.total} hitos cumplidos)`}`,
+    ...(project.stateFile?.generalStatus ? [`- **Estado general (archivo de estado${project.stateFile.updatedLabel ? `, ${project.stateFile.updatedLabel}` : ''}):** ${project.stateFile.generalStatus}`] : []),
+    `- **Avance:** ${project.progress === null ? 'sin hitos definidos' : project.progressSource === 'estado' ? `${project.progress} % (según el archivo de estado)` : `${project.progress} % (${project.milestoneCounts.done} de ${project.milestoneCounts.total} hitos cumplidos)`}`,
     `- **Cliente:** ${project.clientName ?? 'sin cliente'} · **Responsable:** ${agentNames.get(project.ownerAgentId) ?? project.ownerAgentId}`,
     `- **Tareas abiertas:** ${project.openTasks} de ${tasks.length}`,
     ...(project.nextAction ? [`- **Siguiente acción:** ${project.nextAction}`] : []), '',
@@ -775,4 +787,86 @@ export function projectReport(id: string, actor: ProjectActor, range: { from?: s
     ], '') : []),
   ]
   return { projectId: project.id, from, to, markdown: lines.join('\n').trimEnd() + '\n' }
+}
+
+// ---------- status files ----------
+// Each project keeps a status file on Diego's computer or Drive. Synapse stores the last version it
+// was given, so the control center shows what the file says without anyone retyping it.
+
+db.exec(`CREATE TABLE IF NOT EXISTS project_states (
+  project_id TEXT PRIMARY KEY, title TEXT, updated_label TEXT, general_status TEXT, progress INTEGER, sections_json TEXT NOT NULL,
+  source_path TEXT, source_drive_file TEXT, content_hash TEXT NOT NULL, changed_at TEXT NOT NULL, imported_at TEXT NOT NULL
+)`)
+
+export type ProjectStateRecord = { projectId: string; title: string | null; updatedLabel: string | null; generalStatus: string | null; progress: number | null; sections: ProjectStateSections; sourcePath: string | null; sourceDriveFile: string | null; changedAt: string; importedAt: string }
+
+function projectStateFor(projectId: string): ProjectStateRecord | null {
+  const found = row('SELECT * FROM project_states WHERE project_id = ?', projectId)
+  if (!found) return null
+  return { projectId, title: nullable(found.title), updatedLabel: nullable(found.updated_label), generalStatus: nullable(found.general_status), progress: numberOrNull(found.progress), sections: JSON.parse(String(found.sections_json)) as ProjectStateSections, sourcePath: nullable(found.source_path), sourceDriveFile: nullable(found.source_drive_file), changedAt: String(found.changed_at), importedAt: String(found.imported_at) }
+}
+
+/** A state already parsed by the sync script arrives as JSON; it is trusted no more than any other input. */
+function sanitizeState(value: unknown): ParsedProjectState {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new ProjectError('state debe ser un objeto.')
+  const input = value as Record<string, unknown>
+  const sections = (input.sections && typeof input.sections === 'object' ? input.sections : {}) as Record<string, unknown>
+  const items = (list: unknown) => (Array.isArray(list) ? list.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).slice(0, 30).map((item) => item.trim().slice(0, 300)) : [])
+  const progress = typeof input.progress === 'number' && Number.isFinite(input.progress) ? Math.max(0, Math.min(100, Math.round(input.progress))) : null
+  return { title: clean(input.title, 'title', 200), projectId: clean(input.projectId, 'projectId', 120), updatedLabel: clean(input.updatedLabel, 'updatedLabel', 80), generalStatus: clean(input.generalStatus, 'generalStatus', 600), progress, nextAction: clean(input.nextAction, 'nextAction', 2000), mainBlocker: clean(input.mainBlocker, 'mainBlocker', 2000), sourceDriveFolder: clean(input.sourceDriveFolder, 'sourceDriveFolder', 1000), sourceDriveFile: clean(input.sourceDriveFile, 'sourceDriveFile', 1000), obsidianNote: clean(input.obsidianNote, 'obsidianNote', 500), sections: { completed: items(sections.completed), inProgress: items(sections.inProgress), pending: items(sections.pending), nextSteps: items(sections.nextSteps) } }
+}
+
+/**
+ * Loads a project's status file. Creates the project when it is new, confirms it when it was only
+ * "por clasificar", and keeps the next action and the main blocker in step with the file.
+ */
+export function importProjectState(input: Record<string, unknown>, actor: ProjectActor) {
+  onlyKnownKeys(input, ['projectId', 'name', 'domain', 'markdown', 'state', 'sourcePath'])
+  let parsed: ParsedProjectState
+  if (typeof input.markdown === 'string' && input.markdown.trim()) {
+    if (input.markdown.length > 400_000) throw new ProjectError('El archivo de estado excede el tamaño permitido.', 413)
+    parsed = parseProjectState(input.markdown)
+  } else if (input.state !== undefined) parsed = sanitizeState(input.state)
+  else throw new ProjectError('Envía el contenido en markdown o el estado ya leído en state.')
+
+  const requested = clean(input.projectId, 'projectId', 120) ?? parsed.projectId
+  const name = clean(input.name, 'name', 200) ?? parsed.title
+  const id = requested && row('SELECT id FROM projects WHERE id = ?', requested) ? requested : slugify(requested ?? name ?? '')
+  if (!/^[a-z0-9][a-z0-9-]{1,119}$/.test(id)) throw new ProjectError('No se pudo identificar el proyecto: envía projectId o un archivo con título.')
+  let created = false
+  if (!getProjectRow(id)) {
+    if (row('SELECT id FROM projects WHERE id = ?', id)) throw new ProjectError('Ese proyecto fue eliminado en Synapse; no se vuelve a crear desde el archivo.', 409)
+    createProject({ id, name: name ?? humanize(id), domain: input.domain ?? 'agency', status: 'en_curso' }, actor)
+    created = true
+  }
+  const project = requireProject(id, actor)
+  const sourcePath = clean(input.sourcePath, 'sourcePath', 1000)
+  const changes: Record<string, unknown> = {}
+  if (project.status === 'por_clasificar') changes.status = 'en_curso'
+  if (parsed.nextAction && parsed.nextAction !== project.nextAction) changes.nextAction = parsed.nextAction
+  if (sourcePath && sourcePath !== project.sourcePath) changes.sourcePath = sourcePath
+  if (parsed.sourceDriveFolder && parsed.sourceDriveFolder !== project.sourceDriveFolder) changes.sourceDriveFolder = parsed.sourceDriveFolder
+  if (parsed.obsidianNote && parsed.obsidianNote !== project.obsidianNote) changes.obsidianNote = parsed.obsidianNote
+  if (Object.keys(changes).length) updateProject(id, changes, actor)
+
+  // The file names one main blocker. A different text replaces the previous one; no text clears it.
+  const prefix = `estado:${id}:`
+  const wanted = parsed.mainBlocker ? `${prefix}${createHash('sha256').update(parsed.mainBlocker).digest('hex').slice(0, 16)}` : null
+  const now = new Date().toISOString()
+  db.prepare("UPDATE project_updates SET resolved_at = ?, resolution = 'El archivo de estado dejó de reportarlo.' WHERE project_id = ? AND kind = 'bloqueo' AND resolved_at IS NULL AND substr(external_id, 1, ?) = ? AND external_id <> ?").run(now, id, prefix.length, prefix, wanted ?? '')
+  if (wanted && parsed.mainBlocker) {
+    if (row('SELECT id FROM project_updates WHERE external_id = ?', wanted)) db.prepare('UPDATE project_updates SET resolved_at = NULL, resolution = NULL WHERE external_id = ?').run(wanted)
+    else addProjectUpdate(id, { kind: 'bloqueo', text: parsed.mainBlocker, externalId: wanted }, actor)
+  }
+
+  const stored = { title: parsed.title, updatedLabel: parsed.updatedLabel, generalStatus: parsed.generalStatus, progress: parsed.progress, sections: parsed.sections, nextAction: parsed.nextAction, mainBlocker: parsed.mainBlocker }
+  const hash = createHash('sha256').update(JSON.stringify(stored)).digest('hex')
+  const previous = row('SELECT content_hash, changed_at FROM project_states WHERE project_id = ?', id)
+  const changed = !previous || String(previous.content_hash) !== hash
+  db.prepare(`INSERT INTO project_states (project_id, title, updated_label, general_status, progress, sections_json, source_path, source_drive_file, content_hash, changed_at, imported_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(project_id) DO UPDATE SET title = excluded.title, updated_label = excluded.updated_label, general_status = excluded.general_status, progress = excluded.progress, sections_json = excluded.sections_json,
+    source_path = COALESCE(excluded.source_path, project_states.source_path), source_drive_file = COALESCE(excluded.source_drive_file, project_states.source_drive_file), content_hash = excluded.content_hash, changed_at = excluded.changed_at, imported_at = excluded.imported_at`)
+    .run(id, parsed.title, parsed.updatedLabel, parsed.generalStatus, parsed.progress, JSON.stringify(parsed.sections), sourcePath, parsed.sourceDriveFile, hash, changed ? now : String(previous!.changed_at), now)
+  if (changed) addAudit({ action: 'project_state_imported', summary: id, source: actor.source, actorId: actor.actorId })
+  return { project: summarize([getProjectRow(id)!], actor, Date.now())[0], state: projectStateFor(id), created, changed }
 }

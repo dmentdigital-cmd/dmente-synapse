@@ -9,7 +9,8 @@ const OPEN: MilestoneStatus[] = ['pending', 'in_progress', 'blocked']
 const TRACKED: ProjectStatus[] = ['propuesta', 'en_curso']
 
 export type HealthMilestone = { status: MilestoneStatus; dueAt: string }
-export type HealthInput = { status: ProjectStatus; milestones: HealthMilestone[]; openBlockers: number; lastActivityAt: string | null }
+/** `hasStateFile`: the project is followed through its status file, so having no milestones is not a warning. */
+export type HealthInput = { status: ProjectStatus; milestones: HealthMilestone[]; openBlockers: number; lastActivityAt: string | null; hasStateFile?: boolean }
 export type HealthResult = { health: ProjectHealth | null; reasons: string[]; silentDays: number | null }
 
 export function isOpenMilestone(status: MilestoneStatus): boolean { return OPEN.includes(status) }
@@ -40,7 +41,7 @@ export function computeHealth(input: HealthInput, now: number): HealthResult {
 
   let silentDays: number | null = null
   if (input.status === 'en_curso') {
-    if (!open.length) yellow.push('Sin hitos abiertos')
+    if (!open.length && !input.hasStateFile) yellow.push('Sin hitos abiertos')
     const last = input.lastActivityAt ? Date.parse(input.lastActivityAt) : Number.NaN
     if (!Number.isNaN(last)) {
       const days = Math.floor((now - last) / DAY_MS)

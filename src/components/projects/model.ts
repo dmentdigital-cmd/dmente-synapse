@@ -13,6 +13,7 @@ export type ProjectSummary = {
   origin: 'manual' | 'auto' | 'mcp'; createdAt: string; updatedAt: string
   progress: number | null; milestoneCounts: { total: number; done: number; open: number; overdue: number }; nextMilestone: MilestoneBrief | null; overdueMilestones: MilestoneBrief[]
   openTasks: number; openBlockers: number; lastActivityAt: string; silentDays: number | null; health: Health | null; healthReasons: string[]
+  progressSource: 'hitos' | 'estado' | null; stateFile: { generalStatus: string | null; updatedLabel: string | null; changedAt: string } | null
 }
 export type Milestone = { id: string; projectId: string; title: string; phase: string | null; ownerAgentId: AgentId | null; ownerName: string | null; startsAt: string | null; dueAt: string; status: MilestoneStatus; sortOrder: number; completedAt: string | null; notes: string | null }
 export type TaskBrief = { id: string; kind: 'request' | 'commitment'; title: string; domain: string; agentId: AgentId | null; status: string; priority: string | null; startsAt: string | null; dueAt: string | null; nextAction: string }
@@ -21,7 +22,8 @@ export type Client = { id: string; name: string; contactName: string | null; ema
 export type ProjectMetric = { id: string; projectId: string; name: string; unit: string | null; targetTotal: number; plannedToDate: number | null; achieved: number; updatedAt: string }
 export type ProjectInvoice = { id: string; concept: string; amount: number; status: 'pendiente' | 'pagado' | 'anulado'; issuedAt: string | null; dueAt: string | null; paidAt: string | null }
 export type ProjectFinance = { budget: number | null; actualCost: number | null; invoices: ProjectInvoice[]; totals: { invoiced: number; paid: number; pending: number } }
-export type ProjectDetailData = { project: ProjectSummary; milestones: Milestone[]; tasks: TaskBrief[]; updates: ProjectUpdate[]; metrics: ProjectMetric[]; finance: ProjectFinance | null }
+export type ProjectDetailData = { project: ProjectSummary; milestones: Milestone[]; tasks: TaskBrief[]; updates: ProjectUpdate[]; metrics: ProjectMetric[]; finance: ProjectFinance | null; state: ProjectState | null }
+export type ProjectState = { title: string | null; updatedLabel: string | null; generalStatus: string | null; progress: number | null; sections: { completed: string[]; inProgress: string[]; pending: string[]; nextSteps: string[] }; sourcePath: string | null; changedAt: string; importedAt: string }
 
 export const projectStatusLabels: Record<ProjectStatus, string> = { por_clasificar: 'Por clasificar', propuesta: 'Propuesta', en_curso: 'En curso', pausado: 'Pausado', completado: 'Completado', facturado: 'Facturado', cancelado: 'Cancelado' }
 export const milestoneStatusLabels: Record<MilestoneStatus, string> = { pending: 'Pendiente', in_progress: 'En progreso', blocked: 'Bloqueado', done: 'Cumplido', cancelled: 'Cancelado' }
