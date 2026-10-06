@@ -27,6 +27,8 @@ SYNAPSE_MCP_WRITE_DOMAINS=<DOMINIOS_MINIMOS_SEPARADOS_POR_COMAS>
 
 La contraseña del propietario debe tener al menos 12 caracteres. `SYNAPSE_SESSION_SECRET` y `SYNAPSE_TOTP_ENCRYPTION_KEY` deben ser secretos distintos de al menos 32 caracteres y conservarse entre despliegues. Los dominios MCP deben limitarse al mínimo necesario; una lista vacía no concede acceso en producción. Confirma la topología del proxy antes de definir `SYNAPSE_TRUSTED_PROXY_HOPS`.
 
+Passkeys usa por defecto `https://synapse.dmentedigital.co` como origen de producción. Si Synapse opera en otro dominio, define `SYNAPSE_WEBAUTHN_ORIGIN=https://<dominio-exacto>`; opcionalmente, `SYNAPSE_WEBAUTHN_RP_ID=<dominio-base>`. El origen debe coincidir exactamente con el dominio y protocolo de acceso. Al registrar una passkey se exige contraseña y 2FA; el inicio con passkey exige verificación local del dispositivo (Windows Hello, huella o PIN).
+
 No escribir secretos en el Dockerfile ni en el repositorio. Coolify inyecta las variables de entorno en el contenedor y requiere redeploy o restart para aplicar cambios. [Variables de entorno en Coolify](https://coolify.io/docs/applications/configuration/environment-variables)
 
 ### Persistencia de SQLite

@@ -110,6 +110,27 @@ test('owner sessions are signed and login attempts are rate limited', async () =
   assert.match(setCookie, /Secure/)
 })
 
+test('passkeys are persisted with one-time, expiring challenges and an eight-key account limit', async () => {
+  const db = await import('../server/db.js')
+  const { beginPasskeyAuthentication } = await import('../server/passkeys.js')
+  const sampleRequest = request({ host: 'synapse.dmentedigital.co', origin: 'https://synapse.dmentedigital.co' })
+  await assert.rejects(beginPasskeyAuthentication(sampleRequest), (error: unknown) => (error as { statusCode?: number }).statusCode === 409)
+
+  const now = Date.now()
+  db.createWebAuthnChallenge({ id: 'challenge-once', userId: 'diego-local', purpose: 'registration', challenge: 'random-challenge-value', expiresAt: now + 60_000 })
+  assert.equal(db.consumeWebAuthnChallenge('challenge-once', 'registration', 'diego-local'), 'random-challenge-value')
+  assert.equal(db.consumeWebAuthnChallenge('challenge-once', 'registration', 'diego-local'), null)
+  db.createWebAuthnChallenge({ id: 'challenge-expired', userId: 'diego-local', purpose: 'authentication', challenge: 'expired-value', expiresAt: now - 1 })
+  assert.equal(db.consumeWebAuthnChallenge('challenge-expired', 'authentication', 'diego-local'), null)
+
+  assert.equal(db.saveWebAuthnCredential({ id: 'credential-fixture', userId: 'diego-local', publicKey: 'cHVibGljLWtleQ', counter: 0, transports: ['internal'], label: 'Equipo de prueba', createdAt: new Date(now).toISOString() }), true)
+  assert.equal(db.listWebAuthnCredentials('diego-local')[0]?.label, 'Equipo de prueba')
+  assert.equal(db.updateWebAuthnCredentialCounter('credential-fixture', 3), undefined)
+  assert.equal(db.findWebAuthnCredential('credential-fixture')?.counter, 3)
+  assert.equal(db.deleteWebAuthnCredential('credential-fixture', 'otro-usuario'), false)
+  assert.equal(db.deleteWebAuthnCredential('credential-fixture', 'diego-local'), true)
+})
+
 test('trusted proxy mode falls back to the direct peer when the forwarding chain is incomplete', async () => {
   const previousHops = process.env.SYNAPSE_TRUSTED_PROXY_HOPS
   process.env.SYNAPSE_TRUSTED_PROXY_HOPS = '2'

@@ -1,8 +1,35 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { createHash, timingSafeEqual } from 'node:crypto'
 
 const requestWindows = new Map<string, { count: number; resetAt: number }>()
 const requestLimit = 100
 const requestWindowMs = 60_000
+const leadRequestWindows = new Map<string, { count: number; resetAt: number }>()
+const leadRequestLimit = 20
+
+export function allowLeadRequest(req: IncomingMessage, now = Date.now()): boolean {
+  const address = clientAddress(req)
+  const current = leadRequestWindows.get(address)
+  if (!current || current.resetAt <= now) {
+    leadRequestWindows.set(address, { count: 1, resetAt: now + requestWindowMs })
+    if (leadRequestWindows.size > 10_000) {
+      for (const [key, window] of leadRequestWindows) if (window.resetAt <= now) leadRequestWindows.delete(key)
+    }
+    return true
+  }
+  current.count += 1
+  return current.count <= leadRequestLimit
+}
+
+export function authorizedLeadIngest(req: IncomingMessage): boolean {
+  const configured = process.env.SYNAPSE_LEADS_INGEST_TOKEN
+  const header = req.headers.authorization
+  if (!configured || configured.length < 32 || !header?.startsWith('Bearer ')) return false
+  const received = header.slice('Bearer '.length)
+  if (!received) return false
+  const digest = (value: string) => createHash('sha256').update(value).digest()
+  return timingSafeEqual(digest(received), digest(configured))
+}
 
 export function applySecurityHeaders(res: ServerResponse): void {
   res.setHeader('X-Content-Type-Options', 'nosniff')

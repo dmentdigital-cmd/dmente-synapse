@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
-import type { Agent, AgentId, Commitment, Domain, MessageRecord, Permission, Profile, ProfileRole, RequestRecord, RequestStatus, UserAccount, UserRole } from './types.js'
+import type { Agent, AgentId, Commitment, Domain, Lead, LeadInput, MessageRecord, Permission, Profile, ProfileRole, RequestRecord, RequestStatus, UserAccount, UserRole } from './types.js'
 
 const dataDir = process.env.SYNAPSE_DATA_DIR ?? path.resolve(process.cwd(), 'data')
 mkdirSync(dataDir, { recursive: true })
@@ -34,6 +34,54 @@ db.exec(`
     totp_pending_enc TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS webauthn_credentials (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    public_key TEXT NOT NULL,
+    counter INTEGER NOT NULL DEFAULT 0,
+    transports_json TEXT NOT NULL DEFAULT '[]',
+    label TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES user_accounts(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS webauthn_credentials_user ON webauthn_credentials(user_id);
+  CREATE TABLE IF NOT EXISTS webauthn_challenges (
+    id TEXT PRIMARY KEY,
+    user_id TEXT,
+    purpose TEXT NOT NULL CHECK (purpose IN ('registration', 'authentication')),
+    challenge TEXT NOT NULL,
+    expires_at INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS leads (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    email TEXT,
+    phone TEXT NOT NULL,
+    company TEXT,
+    service TEXT,
+    message TEXT,
+    language TEXT,
+    utm_source TEXT,
+    utm_campaign TEXT,
+    page TEXT,
+    pipeline TEXT NOT NULL,
+    stage TEXT NOT NULL,
+    owner_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    submission_count INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS leads_phone_unique ON leads(phone);
+  CREATE UNIQUE INDEX IF NOT EXISTS leads_email_unique ON leads(email) WHERE email IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS leads_updated_order ON leads(updated_at DESC, id DESC);
+  CREATE TABLE IF NOT EXISTS lead_ingest_attempts (
+    idempotency_key TEXT PRIMARY KEY,
+    payload_hash TEXT NOT NULL,
+    lead_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (lead_id) REFERENCES leads(id)
   );
   CREATE TABLE IF NOT EXISTS profile_permissions (
     profile_id TEXT NOT NULL,
@@ -115,6 +163,95 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS agenda_status_history_item_created ON agenda_status_history (item_id, created_at DESC);
 `)
+
+const leadFields = ['name', 'email', 'phone', 'company', 'service', 'message', 'language', 'utmSource', 'utmCampaign', 'page'] as const
+
+function leadFromRow(row: Record<string, unknown>): Lead {
+  return {
+    id: String(row.id), name: String(row.name), email: row.email as string | null, phone: String(row.phone),
+    company: row.company as string | null, service: row.service as string | null, message: row.message as string | null,
+    language: row.language as Lead['language'], utmSource: row.utm_source as string | null,
+    utmCampaign: row.utm_campaign as string | null, page: row.page as string | null,
+    pipeline: String(row.pipeline), stage: String(row.stage), ownerId: String(row.owner_id), status: String(row.status),
+    submissionCount: Number(row.submission_count), createdAt: String(row.created_at), updatedAt: String(row.updated_at),
+  }
+}
+
+export function ingestLead(input: LeadInput, idempotencyKey?: string): { id: string; created: boolean; submissionCount: number } {
+  db.exec('BEGIN IMMEDIATE')
+  try {
+    const payloadHash = createHash('sha256').update(JSON.stringify(input)).digest('hex')
+    if (idempotencyKey) {
+      const attempt = db.prepare('SELECT payload_hash, lead_id FROM lead_ingest_attempts WHERE idempotency_key = ?').get(idempotencyKey) as { payload_hash: string; lead_id: string } | undefined
+      if (attempt) {
+        if (attempt.payload_hash !== payloadHash) throw Object.assign(new Error('Idempotency-Key ya se usó con otros datos.'), { statusCode: 409 })
+        const lead = db.prepare('SELECT submission_count FROM leads WHERE id = ?').get(attempt.lead_id) as { submission_count: number }
+        db.exec('COMMIT')
+        return { id: attempt.lead_id, created: false, submissionCount: lead.submission_count }
+      }
+    }
+    const recordAttempt = (id: string) => {
+      if (idempotencyKey) db.prepare('INSERT INTO lead_ingest_attempts (idempotency_key, payload_hash, lead_id, created_at) VALUES (?, ?, ?, ?)')
+        .run(idempotencyKey, payloadHash, id, new Date().toISOString())
+    }
+    const byPhone = db.prepare('SELECT * FROM leads WHERE phone = ?').get(input.phone) as Record<string, unknown> | undefined
+    const byEmail = input.email ? db.prepare('SELECT * FROM leads WHERE email = ?').get(input.email) as Record<string, unknown> | undefined : undefined
+    if (byPhone && byEmail && byPhone.id !== byEmail.id) {
+      throw Object.assign(new Error('El teléfono y el correo corresponden a leads distintos; requiere revisión manual.'), { statusCode: 409 })
+    }
+    const existingRow = byPhone ?? byEmail
+    if (existingRow) {
+      const existing = leadFromRow(existingRow)
+      const next: LeadInput = {
+        ...input,
+        email: input.email ?? existing.email,
+        company: input.company ?? existing.company,
+        service: input.service ?? existing.service,
+        message: input.message ?? existing.message,
+        language: input.language ?? existing.language,
+        utmSource: input.utmSource ?? existing.utmSource,
+        utmCampaign: input.utmCampaign ?? existing.utmCampaign,
+        page: input.page ?? existing.page,
+      }
+      // An identical retry leaves the count and timestamp untouched.
+      if (leadFields.every((field) => existing[field] === next[field])) {
+        recordAttempt(existing.id)
+        db.exec('COMMIT')
+        return { id: existing.id, created: false, submissionCount: existing.submissionCount }
+      }
+      const updatedAt = new Date().toISOString()
+      db.prepare(`UPDATE leads SET name = ?, email = ?, phone = ?, company = ?, service = ?, message = ?, language = ?,
+        utm_source = ?, utm_campaign = ?, page = ?, submission_count = submission_count + 1, updated_at = ? WHERE id = ?`)
+        .run(next.name, next.email, next.phone, next.company, next.service, next.message, next.language,
+          next.utmSource, next.utmCampaign, next.page, updatedAt, existing.id)
+      recordAttempt(existing.id)
+      db.exec('COMMIT')
+      return { id: existing.id, created: false, submissionCount: existing.submissionCount + 1 }
+    }
+    const id = randomUUID()
+    const now = new Date().toISOString()
+    const configured = (name: string, fallback: string) => process.env[name]?.trim() || fallback
+    db.prepare(`INSERT INTO leads (id, name, email, phone, company, service, message, language, utm_source, utm_campaign,
+      page, pipeline, stage, owner_id, status, submission_count, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', 1, ?, ?)`)
+      .run(id, input.name, input.email, input.phone, input.company, input.service, input.message, input.language,
+        input.utmSource, input.utmCampaign, input.page,
+        configured('LEADS_DEFAULT_PIPELINE', 'ventas'), configured('LEADS_DEFAULT_STAGE', 'nuevo'),
+        configured('LEADS_DEFAULT_OWNER_ID', 'diego-local'), now, now)
+    recordAttempt(id)
+    db.exec('COMMIT')
+    return { id, created: true, submissionCount: 1 }
+  } catch (error) {
+    db.exec('ROLLBACK')
+    throw error
+  }
+}
+
+export function listLeads(limit: number, offset: number): { leads: Lead[]; total: number } {
+  const total = (db.prepare('SELECT COUNT(*) AS total FROM leads').get() as { total: number }).total
+  const rows = db.prepare('SELECT * FROM leads ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?').all(limit, offset) as Record<string, unknown>[]
+  return { leads: rows.map(leadFromRow), total }
+}
 
 const accountColumns = new Set((db.prepare('PRAGMA table_info(user_accounts)').all() as { name: string }[]).map((column) => column.name))
 if (!accountColumns.has('totp_secret_enc')) db.exec('ALTER TABLE user_accounts ADD COLUMN totp_secret_enc TEXT')
@@ -218,6 +355,57 @@ function accountFromRow(row: Record<string, unknown>): UserAccount {
 export function updateUserTotp(id: string, input: { secretEncrypted: string | null; pendingEncrypted: string | null }): boolean {
   const result = db.prepare('UPDATE user_accounts SET totp_secret_enc = ?, totp_pending_enc = ?, updated_at = ? WHERE id = ?').run(input.secretEncrypted, input.pendingEncrypted, new Date().toISOString(), id)
   return Number(result.changes) > 0
+}
+
+export type WebAuthnCredentialRecord = { id: string; userId: string; publicKey: string; counter: number; transports: string[]; label: string; createdAt: string }
+
+function webAuthnCredentialFromRow(row: Record<string, unknown>): WebAuthnCredentialRecord {
+  return { id: String(row.id), userId: String(row.user_id), publicKey: String(row.public_key), counter: Number(row.counter), transports: JSON.parse(String(row.transports_json)) as string[], label: String(row.label), createdAt: String(row.created_at) }
+}
+
+export function createWebAuthnChallenge(input: { id: string; userId: string | null; purpose: 'registration' | 'authentication'; challenge: string; expiresAt: number }): void {
+  db.prepare('DELETE FROM webauthn_challenges WHERE expires_at <= ?').run(Date.now())
+  db.prepare('INSERT INTO webauthn_challenges (id, user_id, purpose, challenge, expires_at) VALUES (?, ?, ?, ?, ?)')
+    .run(input.id, input.userId, input.purpose, input.challenge, input.expiresAt)
+}
+
+export function consumeWebAuthnChallenge(id: string, purpose: 'registration' | 'authentication', userId: string | null): string | null {
+  const row = db.prepare('SELECT challenge, expires_at FROM webauthn_challenges WHERE id = ? AND purpose = ? AND user_id IS ?').get(id, purpose, userId) as { challenge: string; expires_at: number } | undefined
+  db.prepare('DELETE FROM webauthn_challenges WHERE id = ?').run(id)
+  return row && row.expires_at > Date.now() ? row.challenge : null
+}
+
+export function listWebAuthnCredentials(userId: string): WebAuthnCredentialRecord[] {
+  const rows = db.prepare('SELECT * FROM webauthn_credentials WHERE user_id = ? ORDER BY created_at').all(userId) as Record<string, unknown>[]
+  return rows.map(webAuthnCredentialFromRow)
+}
+
+export function hasAnyWebAuthnCredentials(): boolean {
+  return Boolean((db.prepare('SELECT 1 AS found FROM webauthn_credentials LIMIT 1').get() as { found: number } | undefined)?.found)
+}
+
+export function findWebAuthnCredential(id: string): WebAuthnCredentialRecord | null {
+  const row = db.prepare('SELECT * FROM webauthn_credentials WHERE id = ?').get(id) as Record<string, unknown> | undefined
+  return row ? webAuthnCredentialFromRow(row) : null
+}
+
+export function saveWebAuthnCredential(input: WebAuthnCredentialRecord): boolean {
+  try {
+    db.prepare('INSERT INTO webauthn_credentials (id, user_id, public_key, counter, transports_json, label, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(input.id, input.userId, input.publicKey, input.counter, JSON.stringify(input.transports), input.label, input.createdAt)
+    return true
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) return false
+    throw error
+  }
+}
+
+export function updateWebAuthnCredentialCounter(id: string, counter: number): void {
+  db.prepare('UPDATE webauthn_credentials SET counter = ? WHERE id = ?').run(counter, id)
+}
+
+export function deleteWebAuthnCredential(id: string, userId: string): boolean {
+  return Number(db.prepare('DELETE FROM webauthn_credentials WHERE id = ? AND user_id = ?').run(id, userId).changes) > 0
 }
 
 export function findUserByUsername(username: string): UserAccount | null {

@@ -8,6 +8,30 @@ export type RequestStatus = 'pending' | 'in_progress' | 'waiting_approval' | 'bl
 export type ProfileRole = 'owner' | 'assistant'
 export type UserRole = 'viewer' | 'operator' | 'approver' | 'admin'
 
+export type LeadInput = {
+  name: string
+  email: string | null
+  phone: string
+  company: string | null
+  service: string | null
+  message: string | null
+  language: 'es' | 'en' | null
+  utmSource: string | null
+  utmCampaign: string | null
+  page: string | null
+}
+
+export type Lead = LeadInput & {
+  id: string
+  pipeline: string
+  stage: string
+  ownerId: string
+  status: string
+  submissionCount: number
+  createdAt: string
+  updatedAt: string
+}
+
 export type UserAccount = {
   id: string
   username: string

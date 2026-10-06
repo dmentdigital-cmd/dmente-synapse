@@ -1,4 +1,4 @@
-import { StrictMode, useEffect, useMemo, useState } from 'react'
+import { lazy, StrictMode, Suspense, useEffect, useMemo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { agents, initialMessages } from './agents'
 import { ChatDock, ChatPanel } from './components/ChatPanel'
@@ -14,6 +14,8 @@ import { SettingsPanel } from './components/SettingsPanel'
 import { Topbar } from './components/Topbar'
 import type { AgentId, Message, Section } from './types'
 import './styles.css'
+
+const LeadsPanel = lazy(() => import('./components/LeadsPanel').then((module) => ({ default: module.LeadsPanel })))
 
 type ApiMessage = { id: string; direction: 'user' | 'agent'; text: string; createdAt: string }
 export type ApiRequest = { id: string; agentId: AgentId; title: string; domain: string; projectId: string | null; priority: 'low' | 'normal' | 'high' | 'urgent'; status: 'pending' | 'in_progress' | 'waiting_approval' | 'blocked' | 'done' | 'cancelled'; riskLevel: 'low' | 'medium' | 'high'; requiresApproval: boolean; approvalConfirmed: boolean; startsAt: string | null; dueAt: string | null; nextAction: string; obsidianNote?: string | null; sourcePath: string | null; sourceDriveFolder: string | null }
@@ -33,12 +35,12 @@ function Root() {
     setAuth({ configured: true, authenticated: false })
   }
 
-  if (auth?.configured && !auth.authenticated) return <LoginScreen onAuthenticated={(userId, role, mfaEnabled, mfaManaged) => setAuth({ configured: true, authenticated: true, userId, role, mfaEnabled, mfaManaged })} />
+  if (auth?.configured && !auth.authenticated) return <LoginScreen onAuthenticated={(userId, role, mfaEnabled, mfaManaged, domains) => setAuth({ configured: true, authenticated: true, userId, role, mfaEnabled, mfaManaged, domains })} />
   const mfaEnrollmentRequired = auth?.authenticated === true && auth.role === 'admin' && auth.mfaEnabled !== true
-  return <App onLogout={logout} role={auth?.role} userId={auth?.userId} mfaEnabled={auth?.mfaEnabled} mfaManaged={auth?.mfaManaged} mfaEnrollmentRequired={mfaEnrollmentRequired} />
+  return <App onLogout={logout} role={auth?.role} userId={auth?.userId} domains={auth?.domains} mfaEnabled={auth?.mfaEnabled} mfaManaged={auth?.mfaManaged} mfaEnrollmentRequired={mfaEnrollmentRequired} />
 }
 
-function App({ onLogout, role, userId, mfaEnabled, mfaManaged, mfaEnrollmentRequired }: { onLogout: () => void; role?: AuthRole; userId?: string; mfaEnabled?: boolean; mfaManaged?: boolean; mfaEnrollmentRequired: boolean }) {
+function App({ onLogout, role, userId, domains, mfaEnabled, mfaManaged, mfaEnrollmentRequired }: { onLogout: () => void; role?: AuthRole; userId?: string; domains?: string[]; mfaEnabled?: boolean; mfaManaged?: boolean; mfaEnrollmentRequired: boolean }) {
   const [activeAgent, setActiveAgent] = useState<AgentId>('secretaria')
   const [messages, setMessages] = useState(initialMessages)
   const [pending, setPending] = useState<Record<AgentId, boolean>>(() => Object.keys(agents).reduce((state, id) => ({ ...state, [id]: false }), {} as Record<AgentId, boolean>))
@@ -54,6 +56,7 @@ function App({ onLogout, role, userId, mfaEnabled, mfaManaged, mfaEnrollmentRequ
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [installed, setInstalled] = useState(() => window.matchMedia('(display-mode: standalone)').matches || Boolean((navigator as Navigator & { standalone?: boolean }).standalone))
   const agent = agents[activeAgent]
+  const canViewLeads = !mfaEnrollmentRequired && (role === 'admin' || Boolean(domains?.includes('sales')))
   const pendingCount = Object.values(pending).filter(Boolean).length
   const orderedAgents = useMemo(() => Object.entries(agents) as [AgentId, typeof agents[AgentId]][], [])
 
@@ -180,9 +183,9 @@ function App({ onLogout, role, userId, mfaEnabled, mfaManaged, mfaEnrollmentRequ
   }
 
   return <div className="app-shell">
-    <Topbar section={section} pendingCount={pendingCount} setSection={openSection} setActiveAgent={setActiveAgent} onAddAgent={() => setAddAgentOpen(true)} onLogout={onLogout} />
+    <Topbar section={section} pendingCount={pendingCount} canViewLeads={canViewLeads} setSection={openSection} setActiveAgent={setActiveAgent} onAddAgent={() => setAddAgentOpen(true)} onLogout={onLogout} />
     <main className="workspace">
-      {section === 'agenda' ? <AgendaErrorBoundary onClose={() => openSection('office')}><OperationalAgenda items={agendaItems} loadError={apiError} onCreate={createAgendaItem} onEdit={editAgendaItem} onDelete={deleteAgendaItem} onUpdateStatus={updateAgendaStatus} onApprove={approveAgendaItem} onClose={() => openSection('office')} /></AgendaErrorBoundary> : <>
+      {section === 'leads' && canViewLeads ? <Suspense fallback={<div className="leads-empty" role="status">Cargando vista de leads...</div>}><LeadsPanel onClose={() => openSection('office')} /></Suspense> : section === 'agenda' ? <AgendaErrorBoundary onClose={() => openSection('office')}><OperationalAgenda items={agendaItems} loadError={apiError} onCreate={createAgendaItem} onEdit={editAgendaItem} onDelete={deleteAgendaItem} onUpdateStatus={updateAgendaStatus} onApprove={approveAgendaItem} onClose={() => openSection('office')} /></AgendaErrorBoundary> : <>
         <OfficeStage activeAgent={activeAgent} pending={pending} processing={processing} pendingCount={pendingCount} agendaItems={agendaItems} setActiveAgent={setActiveAgent} />
         {section === 'agents' ? <AgentsPanel setActiveAgent={setActiveAgent} close={() => openSection('office')} /> : section === 'requests' ? <RequestsErrorBoundary onClose={() => openSection('office')}><RequestsPanel requests={requests} setActiveAgent={setActiveAgent} close={() => openSection('office')} /></RequestsErrorBoundary> : section === 'settings' ? <SettingsPanel onLogout={onLogout} installed={installed} canInstall={Boolean(installPrompt)} onInstall={() => void installApp()} role={mfaEnrollmentRequired ? undefined : role} userId={userId} mfaEnabled={mfaEnabled} mfaManaged={mfaManaged} /> : chatMinimized ? <ChatDock agent={agent} pending={pending[activeAgent]} restore={() => setChatMinimized(false)} /> : <ChatPanel agent={agent} messages={messages[activeAgent] as Message[]} pending={pending[activeAgent]} processing={processing[activeAgent]} apiReady={apiReady} draft={draft} setDraft={setDraft} sendMessage={sendMessage} minimize={() => setChatMinimized(true)} togglePending={() => setPending((current) => ({ ...current, [activeAgent]: !current[activeAgent] }))} />}
       </>}
@@ -200,7 +203,7 @@ if ('serviceWorker' in navigator) {
 
 function sectionFromHash(hash: string): Section {
   const section = hash.replace(/^#/, '')
-  return section === 'agents' || section === 'requests' || section === 'agenda' || section === 'settings' ? section : 'office'
+  return section === 'agents' || section === 'requests' || section === 'agenda' || section === 'leads' || section === 'settings' ? section : 'office'
 }
 
 type BeforeInstallPromptEvent = Event & {

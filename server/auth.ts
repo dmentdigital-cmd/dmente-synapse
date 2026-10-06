@@ -150,6 +150,36 @@ function totpAt(secret: Buffer, timestampMs: number): string {
   return String(binary % 1_000_000).padStart(6, '0')
 }
 
+function recordLoginFailure(ip: string): void {
+  const now = Date.now()
+  const existing = loginFailures.get(ip)
+  const current = !existing || now - existing.windowStartedAt > loginWindowMs
+    ? { count: 0, windowStartedAt: now, blockedUntil: 0 }
+    : existing
+  current.count += 1
+  if (current.count >= loginFailureLimit) current.blockedUntil = now + loginWindowMs
+  loginFailures.set(ip, current)
+  if (loginFailures.size > 5000) {
+    for (const [address, failure] of loginFailures) {
+      if (failure.blockedUntil <= now && now - failure.windowStartedAt > loginWindowMs) loginFailures.delete(address)
+    }
+    while (loginFailures.size > 5000) loginFailures.delete(loginFailures.keys().next().value as string)
+  }
+}
+
+export function recordAuthFailure(ip: string): void { recordLoginFailure(ip) }
+
+function createSession(userId: string): string | null {
+  if (sessions.size >= 20_000) {
+    const now = Date.now()
+    for (const [token, session] of sessions) if (session.expiresAt <= now) sessions.delete(token)
+    if (sessions.size >= 20_000) return null
+  }
+  const token = randomBytes(32).toString('hex')
+  sessions.set(token, { userId, expiresAt: Date.now() + sessionTtlMs })
+  return `${token}.${signSession(token)}`
+}
+
 export function verifyTotp(secretBase32: string, code: string, timestampMs = Date.now()): boolean {
   if (!/^\d{6}$/.test(code)) return false
   const decodedBytes = decodeBase32(secretBase32)
@@ -173,31 +203,38 @@ export function login(inputUsername: string, inputCredential: string, ip: string
     ? Boolean(accountSecret && verifyTotp(accountSecret, mfaCode))
     : inputUsername.toLowerCase() !== username.toLowerCase() || !ownerTotpSecret || verifyTotp(ownerTotpSecret, mfaCode)
   if (!credentialValid || !mfaValid) {
-    const now = Date.now()
-    const existing = loginFailures.get(ip)
-    const current = !existing || now - existing.windowStartedAt > loginWindowMs
-      ? { count: 0, windowStartedAt: now, blockedUntil: 0 }
-      : existing
-    current.count += 1
-    if (current.count >= loginFailureLimit) current.blockedUntil = now + loginWindowMs
-    loginFailures.set(ip, current)
-    if (loginFailures.size > 5000) {
-      for (const [address, failure] of loginFailures) {
-        if (failure.blockedUntil <= now && now - failure.windowStartedAt > loginWindowMs) loginFailures.delete(address)
-      }
-      while (loginFailures.size > 5000) loginFailures.delete(loginFailures.keys().next().value as string)
-    }
+    recordLoginFailure(ip)
     return null
   }
   loginFailures.delete(ip)
-  if (sessions.size >= 20_000) {
-    const now = Date.now()
-    for (const [token, session] of sessions) if (session.expiresAt <= now) sessions.delete(token)
-    if (sessions.size >= 20_000) return null
+  return createSession(user!.id)
+}
+
+export function verifyAccountPasswordAndMfa(userId: string, password: string, mfaCode: string, ip: string): boolean {
+  if (loginBlocked(ip)) return false
+  const user = findUserById(userId)
+  const credentialValid = Boolean(user?.active && safeEqual(passwordDigest(password, user.passwordSalt), user.passwordHash))
+  const accountSecret = user?.totpSecretEncrypted ? decryptTotpSecret(user.totpSecretEncrypted) : null
+  const mfaValid = user?.totpSecretEncrypted
+    ? Boolean(accountSecret && verifyTotp(accountSecret, mfaCode))
+    : user?.username.toLowerCase() !== username.toLowerCase() || !ownerTotpSecret || verifyTotp(ownerTotpSecret, mfaCode)
+  if (!credentialValid || !mfaValid) {
+    recordLoginFailure(ip)
+    return false
   }
-  const token = randomBytes(32).toString('hex')
-  sessions.set(token, { userId: user!.id, expiresAt: Date.now() + sessionTtlMs })
-  return `${token}.${signSession(token)}`
+  loginFailures.delete(ip)
+  return true
+}
+
+export function loginWithVerifiedPasskey(userId: string, ip: string): string | null {
+  if (loginBlocked(ip)) return null
+  const user = findUserById(userId)
+  if (!user?.active) {
+    recordLoginFailure(ip)
+    return null
+  }
+  loginFailures.delete(ip)
+  return createSession(userId)
 }
 
 export function accessFromRequest(req: IncomingMessage): { userId: string; role: UserRole; domains: Domain[] } | null {

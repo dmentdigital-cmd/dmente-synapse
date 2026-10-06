@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Download, Link2, LogOut, ShieldCheck, Smartphone, UserPlus } from 'lucide-react'
+import { Download, Fingerprint, Link2, LogOut, ShieldCheck, Smartphone, Trash2, UserPlus } from 'lucide-react'
 
 const domainOptions = [
   ['agency', 'Agencia'], ['personal', 'Personal'], ['family', 'Familia'], ['health', 'Salud'],
@@ -10,6 +10,7 @@ const domainOptions = [
 type Role = 'viewer' | 'operator' | 'approver' | 'admin'
 type Account = { id: string; username: string; name: string; role: Role; domains: string[]; active: boolean; password?: string }
 type DeploymentVersion = { sourceCommit: string; branch: string }
+type PasskeyRecord = { id: string; label: string; createdAt: string }
 type Props = { onLogout: () => void; installed: boolean; canInstall: boolean; onInstall: () => void; role?: Role; userId?: string; mfaEnabled?: boolean; mfaManaged?: boolean }
 
 const roleLabels: Record<Role, string> = { viewer: 'Lector', operator: 'Operador', approver: 'Aprobador', admin: 'Administrador' }
@@ -30,6 +31,12 @@ export function SettingsPanel({ onLogout, installed, canInstall, onInstall, role
   const [mfaBusy, setMfaBusy] = useState(false)
   const [deploymentVersion, setDeploymentVersion] = useState<DeploymentVersion | null>(null)
   const [versionError, setVersionError] = useState(false)
+  const [passkeys, setPasskeys] = useState<PasskeyRecord[]>([])
+  const [passkeyLabel, setPasskeyLabel] = useState('Este dispositivo')
+  const [passkeyPassword, setPasskeyPassword] = useState('')
+  const [passkeyCode, setPasskeyCode] = useState('')
+  const [passkeyBusy, setPasskeyBusy] = useState(false)
+  const [removePasskeyId, setRemovePasskeyId] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -53,6 +60,48 @@ export function SettingsPanel({ onLogout, installed, canInstall, onInstall, role
 
   useEffect(() => { setMfaActive(mfaEnabled) }, [mfaEnabled])
   useEffect(() => { setMfaStored(mfaManaged) }, [mfaManaged])
+
+  async function loadPasskeys() {
+    const response = await fetch('/api/auth/passkeys')
+    const data = await response.json() as { passkeys?: PasskeyRecord[]; error?: string }
+    if (!response.ok || !data.passkeys) throw new Error(data.error ?? 'No se pudieron cargar las passkeys.')
+    setPasskeys(data.passkeys)
+  }
+
+  useEffect(() => {
+    if (userId) void loadPasskeys().catch((cause) => setError(cause instanceof Error ? cause.message : 'No se pudieron cargar las passkeys.'))
+  }, [userId])
+
+  async function addPasskey() {
+    setPasskeyBusy(true); setError(''); setNotice('')
+    try {
+      const optionsResponse = await fetch('/api/auth/passkeys/options', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: passkeyPassword, mfaCode: passkeyCode }) })
+      const optionsData = await optionsResponse.json() as { stateId?: string; options?: Parameters<(typeof import('@simplewebauthn/browser'))['startRegistration']>[0]['optionsJSON']; error?: string }
+      if (!optionsResponse.ok || !optionsData.stateId || !optionsData.options) throw new Error(optionsData.error ?? 'No se pudo preparar la passkey.')
+      const { startRegistration } = await import('@simplewebauthn/browser')
+      const response = await startRegistration({ optionsJSON: optionsData.options })
+      const verifyResponse = await fetch('/api/auth/passkeys/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stateId: optionsData.stateId, response, label: passkeyLabel }) })
+      const data = await verifyResponse.json() as { passkey?: PasskeyRecord; error?: string }
+      if (!verifyResponse.ok || !data.passkey) throw new Error(data.error ?? 'No se pudo guardar la passkey.')
+      setPasskeys((current) => [...current, data.passkey!])
+      setPasskeyPassword(''); setPasskeyCode('')
+      setNotice(`Passkey “${data.passkey.label}” registrada.`)
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo registrar la passkey.') }
+    finally { setPasskeyBusy(false) }
+  }
+
+  async function removePasskey(id: string) {
+    setPasskeyBusy(true); setError(''); setNotice('')
+    try {
+      const response = await fetch(`/api/auth/passkeys/${encodeURIComponent(id)}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: passkeyPassword, mfaCode: passkeyCode }) })
+      const data = await response.json() as { removed?: boolean; error?: string }
+      if (!response.ok || !data.removed) throw new Error(data.error ?? 'No se pudo eliminar la passkey.')
+      setPasskeys((current) => current.filter((passkey) => passkey.id !== id))
+      setPasskeyPassword(''); setPasskeyCode(''); setRemovePasskeyId('')
+      setNotice('Passkey eliminada.')
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo eliminar la passkey.') }
+    finally { setPasskeyBusy(false) }
+  }
 
   async function startMfaSetup() {
     setMfaBusy(true); setError(''); setNotice('')
@@ -140,6 +189,13 @@ export function SettingsPanel({ onLogout, installed, canInstall, onInstall, role
       {!mfaActive && mfaSecret && <div className="mfa-enrollment"><p>Agrega esta clave en tu aplicación autenticadora y confirma con el código de seis dígitos.</p><label className="mfa-field">Clave de configuración<input readOnly value={mfaSecret} onFocus={(event) => event.currentTarget.select()} /></label><button className="mfa-copy" onClick={() => void copyMfaSecret()}>Copiar clave</button><details><summary>URI para autenticador</summary><code>{mfaUri}</code></details><label className="mfa-field">Código del autenticador<input inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={mfaCode} onChange={(event) => setMfaCode(event.target.value.replace(/\D/g, '').slice(0, 6))} /></label><div className="mfa-actions"><button className="mfa-copy" disabled={mfaBusy} onClick={() => { setMfaSecret(''); setMfaUri(''); setMfaCode('') }}>Cancelar</button><button className="account-save" disabled={mfaBusy || mfaCode.length !== 6} onClick={() => void confirmMfaSetup()}>{mfaBusy ? 'Confirmando…' : 'Confirmar MFA'}</button></div></div>}
       {mfaActive && !mfaStored && <p className="mfa-legacy-note">Este MFA se administra con <code>SYNAPSE_OWNER_TOTP_SECRET</code>. Para administrar MFA individual, configura <code>SYNAPSE_TOTP_ENCRYPTION_KEY</code> en el servidor y reinícialo.</p>}
       {mfaActive && mfaStored && <div className="mfa-disable"><label className="mfa-field">Contraseña actual<input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /></label><label className="mfa-field">Código actual<input inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={currentCode} onChange={(event) => setCurrentCode(event.target.value.replace(/\D/g, '').slice(0, 6))} /></label><button className="mfa-disable-button" disabled={mfaBusy || !currentPassword || currentCode.length !== 6} onClick={() => void disableMfa()}>{mfaBusy ? 'Verificando…' : 'Desactivar MFA'}</button></div>}
+    </section>}
+    {userId && <section className="passkey-control" aria-labelledby="passkey-control-title">
+      <header><div><span className="eyebrow">INICIO SIN CONTRASEÑA</span><h3 id="passkey-control-title">Passkeys y huella</h3></div><span className={passkeys.length ? 'settings-status online' : 'settings-status'}>{passkeys.length} registradas</span></header>
+      <p>La huella o Windows Hello se guarda en el dispositivo. Synapse conserva solo la clave pública. Para añadir o quitar una passkey confirma tu contraseña y código 2FA.</p>
+      {!mfaActive && <p className="mfa-legacy-note">Activa 2FA antes de registrar una passkey.</p>}
+      {passkeys.map((passkey) => <article className="passkey-row" key={passkey.id}><Fingerprint size={16} /><div><strong>{passkey.label}</strong><small>Registrada {new Date(passkey.createdAt).toLocaleDateString('es-CO')}</small></div>{removePasskeyId === passkey.id ? <button type="button" className="passkey-remove confirm" disabled={passkeyBusy || !passkeyPassword || passkeyCode.length !== 6} onClick={() => void removePasskey(passkey.id)}>Confirmar</button> : <button type="button" className="passkey-remove" disabled={passkeyBusy} onClick={() => setRemovePasskeyId(passkey.id)}><Trash2 size={14} /> Quitar</button>}</article>)}
+      {mfaActive && <div className="passkey-enroll"><label className="mfa-field">Nombre<input value={passkeyLabel} maxLength={80} onChange={(event) => setPasskeyLabel(event.target.value)} /></label><label className="mfa-field">Contraseña actual<input type="password" autoComplete="current-password" value={passkeyPassword} onChange={(event) => setPasskeyPassword(event.target.value)} /></label><label className="mfa-field">Código actual 2FA<input inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={passkeyCode} onChange={(event) => setPasskeyCode(event.target.value.replace(/\D/g, '').slice(0, 6))} /></label><button type="button" className="account-save" disabled={passkeyBusy || !passkeyPassword || passkeyCode.length !== 6 || !passkeyLabel.trim()} onClick={() => void addPasskey()}>{passkeyBusy ? 'Esperando dispositivo…' : 'Registrar passkey en este dispositivo'}</button></div>}
     </section>}
     {role === 'admin' && <section className="account-admin" aria-labelledby="account-admin-title">
       <header><div><span className="eyebrow">ACCESO Y ALCANCE</span><h3 id="account-admin-title">Cuentas</h3></div><span>{accounts.filter((account) => account.active).length} activas</span></header>

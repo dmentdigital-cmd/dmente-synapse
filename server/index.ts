@@ -3,12 +3,14 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { URL } from 'node:url'
-import { accessFromRequest, authConfigured, authStatus, beginTotpSetup, clearSession, clearSessionCookie, confirmTotpSetup, disableTotp, hashPassword, login, loginBlocked, mfaEnabledForUser, mfaManagedForUser, revokeUserSessions, sessionFromRequest, setSessionCookie, totpEncryptionConfigured, validateProductionSecurityConfiguration } from './auth.js'
-import { addAudit, addMessage, closeDatabase, confirmRequestApproval, createCommitment, createRequest, createUserAccount, findUserById, findUserByUsername, getLatestAgendaStatusComment, getLocalProfile, getRequest, listAgents, listCommitments, listMessages, listPermissions, listRequests, listUserAccounts, recordAgendaStatusChange, updateCommitmentStatus, updateRequestSources, updateRequestStatus, updateUserAccount } from './db.js'
+import { accessFromRequest, authConfigured, authStatus, beginTotpSetup, clearSession, clearSessionCookie, confirmTotpSetup, disableTotp, hashPassword, login, loginBlocked, mfaEnabledForUser, mfaManagedForUser, recordAuthFailure, revokeUserSessions, sessionFromRequest, setSessionCookie, totpEncryptionConfigured, validateProductionSecurityConfiguration, verifyAccountPasswordAndMfa } from './auth.js'
+import { addAudit, addMessage, closeDatabase, confirmRequestApproval, createCommitment, createRequest, createUserAccount, findUserById, findUserByUsername, getLatestAgendaStatusComment, getLocalProfile, getRequest, ingestLead, listAgents, listCommitments, listLeads, listMessages, listPermissions, listRequests, listUserAccounts, recordAgendaStatusChange, updateCommitmentStatus, updateRequestSources, updateRequestStatus, updateUserAccount } from './db.js'
 import { buildReply, routeRequest } from './orchestrator.js'
 import { authorizedWriteForDomain, handleMcp } from './mcp.js'
 import { getHermesStatus, isHermesConfigured, requestHermesReply } from './hermes.js'
-import { allowApiRequest, applySecurityHeaders, clientAddress, readJsonBody, sameOriginMutation } from './security.js'
+import { allowApiRequest, allowLeadRequest, applySecurityHeaders, authorizedLeadIngest, clientAddress, readJsonBody, sameOriginMutation } from './security.js'
+import { parseLead } from './leads.js'
+import { beginPasskeyAuthentication, beginPasskeyRegistration, completePasskeyAuthentication, completePasskeyRegistration, listPasskeys, loginWithVerifiedPasskey, removePasskey } from './passkeys.js'
 import type { Domain, UserRole } from './types.js'
 import { editAgendaRecord, removeAgendaRecord } from './agenda-mutations.js'
 
@@ -108,8 +110,30 @@ const server = createServer(async (req, res) => {
     if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return }
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
     if ((url.pathname.startsWith('/api/') || url.pathname === '/mcp') && !allowApiRequest(req)) return send(res, 429, { error: 'Demasiadas solicitudes. Intenta de nuevo en un minuto.' })
+    if (url.pathname === '/api/public/leads' && req.method === 'POST') {
+      if (!allowLeadRequest(req)) return send(res, 429, { error: 'Demasiadas solicitudes de leads. Intenta de nuevo en un minuto.' })
+      if (!authorizedLeadIngest(req)) return send(res, 401, { error: 'Token de leads inválido o ausente.' })
+      const idempotencyKey = req.headers['idempotency-key']
+      if (idempotencyKey !== undefined && (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(idempotencyKey))) {
+        return send(res, 400, { error: 'Debe tener entre 1 y 128 caracteres seguros.', field: 'Idempotency-Key' })
+      }
+      const lead = parseLead(await readJsonBody(req))
+      const result = ingestLead(lead, idempotencyKey)
+      return send(res, result.created ? 201 : 200, { id: result.id, submissionCount: result.submissionCount })
+    }
     if (url.pathname.startsWith('/api/') && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method ?? '') && !sameOriginMutation(req)) return send(res, 403, { error: 'Origen de solicitud no permitido.' })
     if (url.pathname === '/mcp') return handleMcp(req, res)
+    if (req.method === 'GET' && url.pathname === '/api/leads') {
+      const session = requireSession(req, res); if (!session) return
+      if (!inDomain(session, 'sales')) return send(res, 403, { error: 'No tienes acceso a los leads de ventas.' })
+      const limitText = url.searchParams.get('limit') ?? '50'
+      const offsetText = url.searchParams.get('offset') ?? '0'
+      if (!/^\d+$/.test(limitText) || !/^\d+$/.test(offsetText)) return send(res, 400, { error: 'limit y offset deben ser números enteros no negativos.' })
+      const limit = Number(limitText)
+      const offset = Number(offsetText)
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100 || !Number.isSafeInteger(offset)) return send(res, 400, { error: 'limit debe estar entre 1 y 100 y offset debe ser un entero no negativo.' })
+      return send(res, 200, { ...listLeads(limit, offset), limit, offset })
+    }
     if (req.method === 'GET' && url.pathname === '/api/version') {
       const sourceCommit = text(process.env.SOURCE_COMMIT) || 'unknown'
       const branch = text(process.env.COOLIFY_BRANCH) || 'unknown'
@@ -131,6 +155,55 @@ const server = createServer(async (req, res) => {
       setSessionCookie(res, token)
       const account = findUserByUsername(text(input.username))
       return send(res, 200, { authenticated: true, userId: account?.id, role: account?.role, domains: account?.domains, mfaEnabled: account ? mfaEnabledForUser(account.id) : false, mfaManaged: account ? mfaManagedForUser(account.id) : false })
+    }
+    if (req.method === 'POST' && url.pathname === '/api/auth/passkey/options') {
+      const address = clientAddress(req)
+      if (loginBlocked(address)) return send(res, 429, { error: 'Demasiados intentos. Intenta más tarde.' })
+      return send(res, 200, await beginPasskeyAuthentication(req))
+    }
+    if (req.method === 'POST' && url.pathname === '/api/auth/passkey/verify') {
+      const address = clientAddress(req)
+      if (loginBlocked(address)) return send(res, 429, { error: 'Demasiados intentos. Intenta más tarde.' })
+      const input = await readJsonBody(req)
+      try {
+        const userId = await completePasskeyAuthentication(req, input, address)
+        if (!userId) { recordAuthFailure(address); return send(res, 401, { error: 'Passkey no válida.' }) }
+        const token = loginWithVerifiedPasskey(userId, address)
+        if (!token) return send(res, 429, { error: 'Demasiados intentos. Intenta más tarde.' })
+        setSessionCookie(res, token)
+        const account = findUserById(userId)
+        addAudit({ action: 'passkey_login', summary: 'Inicio de sesión con passkey', source: 'manual', actorId: userId })
+        return send(res, 200, { authenticated: true, userId: account?.id, role: account?.role, domains: account?.domains, mfaEnabled: account ? mfaEnabledForUser(account.id) : false, mfaManaged: account ? mfaManagedForUser(account.id) : false })
+      } catch (error) {
+        if (error && typeof error === 'object' && 'statusCode' in error && error.statusCode === 401) recordAuthFailure(address)
+        throw error
+      }
+    }
+    if (req.method === 'GET' && url.pathname === '/api/auth/passkeys') {
+      const session = requireSession(req, res, ['viewer', 'operator', 'approver', 'admin']); if (!session) return
+      return send(res, 200, { passkeys: listPasskeys(session.userId) })
+    }
+    if (req.method === 'POST' && url.pathname === '/api/auth/passkeys/options') {
+      const session = requireSession(req, res, ['viewer', 'operator', 'approver', 'admin']); if (!session) return
+      const input = await readJsonBody(req)
+      return send(res, 200, await beginPasskeyRegistration(req, session.userId, text(input.password), text(input.mfaCode), clientAddress(req)))
+    }
+    if (req.method === 'POST' && url.pathname === '/api/auth/passkeys/verify') {
+      const session = requireSession(req, res, ['viewer', 'operator', 'approver', 'admin']); if (!session) return
+      const input = await readJsonBody(req)
+      const passkey = await completePasskeyRegistration(req, session.userId, input)
+      addAudit({ action: 'passkey_registered', summary: `Passkey registrada: ${passkey.label}`, source: 'manual', actorId: session.userId })
+      return send(res, 201, { passkey })
+    }
+    const passkeyMatch = url.pathname.match(/^\/api\/auth\/passkeys\/([^/]+)$/)
+    if (req.method === 'DELETE' && passkeyMatch) {
+      const session = requireSession(req, res, ['viewer', 'operator', 'approver', 'admin']); if (!session) return
+      const input = await readJsonBody(req)
+      if (!verifyAccountPasswordAndMfa(session.userId, text(input.password), text(input.mfaCode), clientAddress(req))) return send(res, 401, { error: 'Contraseña o código 2FA incorrectos.' })
+      const id = decodeURIComponent(passkeyMatch[1])
+      if (!removePasskey(session.userId, id)) return send(res, 404, { error: 'Passkey no encontrada.' })
+      addAudit({ action: 'passkey_removed', summary: 'Passkey eliminada', source: 'manual', actorId: session.userId })
+      return send(res, 200, { removed: true })
     }
     if (req.method === 'POST' && url.pathname === '/api/auth/logout') {
       clearSession(req)
@@ -417,7 +490,7 @@ const server = createServer(async (req, res) => {
   } catch (error) {
     const statusCode = error && typeof error === 'object' && 'statusCode' in error && typeof error.statusCode === 'number' ? error.statusCode : 500
     if (statusCode >= 500) console.error('[Synapse API] Error de solicitud')
-    return send(res, statusCode, { error: statusCode >= 500 ? 'Error interno. Intenta de nuevo o revisa los registros del servidor.' : error instanceof Error ? error.message : 'Solicitud inválida.' })
+    return send(res, statusCode, { error: statusCode >= 500 ? 'Error interno. Intenta de nuevo o revisa los registros del servidor.' : error instanceof Error ? error.message : 'Solicitud inválida.', ...(error && typeof error === 'object' && 'field' in error ? { field: error.field } : {}) })
   }
 })
 
