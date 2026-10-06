@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { readJsonBody } from './security.js'
-import { addProjectUpdate, createClient, createMilestone, createProject, deleteMilestone, deleteProject, getProjectDetail, listClients, listProjects, projectsDigest, resolveBlocker, updateClient, updateMilestone, updateProject, type ProjectActor } from './projects.js'
+import { addProjectUpdate, createClient, createMilestone, createProject, deleteMilestone, deleteProject, deleteProjectMetric, getProjectDetail, projectReport, saveProjectInvoice, setProjectFinance, setProjectMetric, listClients, listProjects, projectsDigest, resolveBlocker, updateClient, updateMilestone, updateProject, type ProjectActor } from './projects.js'
 import type { Domain, UserRole } from './types.js'
 
 type Session = { userId: string; role: UserRole; domains: Domain[] }
@@ -53,6 +53,14 @@ export async function handleProjectRoutes(req: IncomingMessage, res: ServerRespo
     if (segments.length === 4 && method === 'DELETE') { const actor = begin(['admin']); if (!actor) return true; send(res, 200, deleteMilestone(id, childId, (await readJsonBody(req)).expectedTitle, actor)); return true }
     return false
   }
+  if (child === 'report' && segments.length === 3 && method === 'GET') { const actor = begin(); if (!actor) return true; send(res, 200, projectReport(id, actor, { from: url.searchParams.get('from'), to: url.searchParams.get('to') })); return true }
+  if (child === 'metrics') {
+    if (segments.length === 3 && method === 'POST') { const actor = begin(WRITERS); if (!actor) return true; send(res, 200, { metric: setProjectMetric(id, await readJsonBody(req), actor) }); return true }
+    if (segments.length === 4 && method === 'DELETE') { const actor = begin(['admin']); if (!actor) return true; send(res, 200, deleteProjectMetric(id, childId, actor)); return true }
+    return false
+  }
+  if (child === 'finance' && segments.length === 3 && method === 'PATCH') { const actor = begin(WRITERS); if (!actor) return true; send(res, 200, { finance: setProjectFinance(id, await readJsonBody(req), actor) }); return true }
+  if (child === 'invoices' && segments.length === 3 && method === 'POST') { const actor = begin(WRITERS); if (!actor) return true; send(res, 200, { finance: saveProjectInvoice(id, await readJsonBody(req), actor) }); return true }
   if (child === 'updates') {
     if (segments.length === 3 && method === 'POST') { const actor = begin(WRITERS); if (!actor) return true; send(res, 201, { update: addProjectUpdate(id, await readJsonBody(req), actor) }); return true }
     if (segments.length === 5 && action === 'resolve' && method === 'POST') { const actor = begin(WRITERS); if (!actor) return true; send(res, 200, { update: resolveBlocker(id, childId, await readJsonBody(req), actor) }); return true }

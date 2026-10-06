@@ -290,3 +290,49 @@ test('deleting a project needs the exact name, keeps its tasks and survives a re
   assert.equal((db.prepare("SELECT COUNT(*) AS total FROM audit_events WHERE action = 'project_deleted'").get() as any).total, 1)
   db.close()
 })
+
+test('goals, the cut-off report and finance: figures are computed by the server and finance needs its own access', async () => {
+  await restart()
+  const route = '/api/projects/implementacion-crm-nandu'
+  assert.equal((await api(`${route}/metrics`, 'POST', { name: 'Leads calificados', targetTotal: -1 })).status, 400)
+  assert.equal((await api(`${route}/metrics`, 'POST', { name: 'Leads calificados' })).status, 400)
+  const metric = (await api(`${route}/metrics`, 'POST', { name: 'Leads calificados', unit: 'leads', targetTotal: 200, plannedToDate: 80, achieved: 50 })).data.metric
+  // Reporting progress by name updates the same goal.
+  const updated = (await mcp('synapse_set_project_metric', { projectId: 'implementacion-crm-nandu', name: 'leads calificados', achieved: 90 })).result.structuredContent.metric
+  assert.equal(updated.id, metric.id)
+  assert.deepEqual([updated.targetTotal, updated.plannedToDate, updated.achieved], [200, 80, 90])
+  await api(`${route}/updates`, 'POST', { kind: 'leccion', text: 'Pedir accesos antes del kickoff' })
+
+  assert.equal((await api(`${route}/finance`, 'PATCH', { budget: 12_000_000, actualCost: 4_500_000 })).status, 200)
+  assert.equal((await api(`${route}/invoices`, 'POST', { concept: 'Anticipo 50 %', amount: 6_000_000 })).status, 200)
+  const finance = (await api(`${route}/invoices`, 'POST', { concept: 'Saldo', amount: 6_000_000 })).data.finance
+  const paid = (await api(`${route}/invoices`, 'POST', { id: finance.invoices.find((invoice: any) => invoice.concept === 'Anticipo 50 %').id, status: 'pagado' })).data.finance
+  assert.deepEqual(paid.totals, { invoiced: 12_000_000, paid: 6_000_000, pending: 6_000_000 })
+  assert.equal((await api(`${route}/invoices`, 'POST', { id: 'missing', status: 'pagado' })).status, 404)
+
+  const detail = (await api(route)).data
+  assert.equal(detail.metrics.length, 1)
+  assert.equal(detail.finance.budget, 12_000_000)
+  const report = (await api(`${route}/report`)).data.markdown as string
+  assert.match(report, /# Informe de seguimiento — Implementación CRM Ñandú/)
+  assert.match(report, /\| Leads calificados \| leads \| 200 \| 80 \| 90 \| 45 % \|/)
+  assert.match(report, /\| Kickoff \| Descubrimiento \| Diego \|/)
+  assert.match(report, /Pedir accesos antes del kickoff/)
+  assert.match(report, /Por cobrar:\*\* \$\s?6\.000\.000/)
+  assert.equal((await api(`${route}/report?from=2026-13-40`)).status, 400)
+  assert.equal((await api(`${route}/report?from=2020-01-01&to=2020-01-31`)).data.markdown.includes('Pedir accesos'), false)
+
+  // The agency viewer sees goals and the report, but nothing about money.
+  const viewer = { cookie: await signIn('agency-viewer') }
+  const seen = (await api(route, 'GET', undefined, viewer)).data
+  assert.equal(seen.metrics.length, 1)
+  assert.equal(seen.finance, null)
+  assert.equal((await api(`${route}/report`, 'GET', undefined, viewer)).data.markdown.includes('Presupuesto'), false)
+  assert.equal((await api(`${route}/finance`, 'PATCH', { budget: 1 }, viewer)).status, 403)
+  // The MCP token has no finance domain, so Lucía's report leaves money out too.
+  const lucia = (await mcp('synapse_project_report', { projectId: 'implementacion-crm-nandu' }, 'read')).result.structuredContent.markdown
+  assert.match(lucia, /45 %/)
+  assert.equal(lucia.includes('Presupuesto'), false)
+  assert.equal((await api(`${route}/metrics/${metric.id}`, 'DELETE')).data.deleted, true)
+  assert.equal((await api(route)).data.metrics.length, 0)
+})

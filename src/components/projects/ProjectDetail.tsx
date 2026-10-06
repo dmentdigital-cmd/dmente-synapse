@@ -1,11 +1,12 @@
 import { useState, type ReactNode } from 'react'
-import { AlertTriangle, CalendarClock, CircleCheck, ExternalLink, Flag, ListChecks, MessageSquareText, Pencil, Plus, Trash2 } from 'lucide-react'
+import { AlertTriangle, CalendarClock, ChartNoAxesColumn, CircleCheck, CircleDollarSign, ExternalLink, Flag, ListChecks, MessageSquareText, Pencil, Plus, Trash2 } from 'lucide-react'
 import { agents } from '../../agents'
 import type { AgentId } from '../../types'
 import { ConfirmAction, MilestoneForm, ProjectForm } from './ProjectForms'
+import { FinanceTab, GoalsTab } from './TrackingTabs'
 import { call, canWrite, dateTimeLabel, dayLabel, domainLabels, healthLabels, milestoneStatusLabels, plural, projectStatusLabels, taskStatusLabels, updateKindLabels, type Client, type Milestone, type MilestoneStatus, type ProjectDetailData, type ProjectStatus, type ProjectUpdate, type Role, type UpdateKind } from './model'
 
-type Tab = 'schedule' | 'tasks' | 'updates' | 'info'
+type Tab = 'schedule' | 'tasks' | 'updates' | 'goals' | 'finance' | 'info'
 type Dialog =
   | { type: 'project' }
   | { type: 'milestone'; milestone?: Milestone }
@@ -31,7 +32,7 @@ export function ProgressBar({ progress, done, total }: { progress: number | null
 }
 
 export function ProjectDetail({ detail, role, clients, onChanged, onDeleted }: Props) {
-  const { project, milestones, tasks, updates } = detail
+  const { project, milestones, tasks, updates, metrics, finance } = detail
   const [tab, setTab] = useState<Tab>('schedule')
   const [dialog, setDialog] = useState<Dialog | null>(null)
   const [draft, setDraft] = useState<{ kind: UpdateKind; text: string }>({ kind: 'avance', text: '' })
@@ -65,6 +66,8 @@ export function ProjectDetail({ detail, role, clients, onChanged, onDeleted }: P
     { id: 'schedule', label: `Cronograma${milestones.length ? ` · ${milestones.length}` : ''}`, icon: <Flag size={14} /> },
     { id: 'tasks', label: `Tareas${openTasks.length ? ` · ${openTasks.length}` : ''}`, icon: <ListChecks size={14} /> },
     { id: 'updates', label: `Novedades${openBlockers.length ? ` · ${plural(openBlockers.length, 'bloqueo', 'bloqueos')}` : ''}`, icon: <MessageSquareText size={14} /> },
+    { id: 'goals', label: `Seguimiento${metrics.length ? ` · ${metrics.length}` : ''}`, icon: <ChartNoAxesColumn size={14} /> },
+    ...(finance ? [{ id: 'finance' as Tab, label: 'Cobros', icon: <CircleDollarSign size={14} /> }] : []),
     { id: 'info', label: 'Ficha', icon: <ExternalLink size={14} /> },
   ]
 
@@ -134,6 +137,9 @@ export function ProjectDetail({ detail, role, clients, onChanged, onDeleted }: P
         </li>
       })}</ul>}
     </section>}
+
+    {tab === 'goals' && <GoalsTab projectId={project.id} metrics={metrics} writer={writer} admin={admin} onChanged={onChanged} />}
+    {tab === 'finance' && finance && <FinanceTab projectId={project.id} finance={finance} writer={writer} onChanged={onChanged} />}
 
     {tab === 'info' && <section className="project-tab" aria-label="Ficha">
       <dl className="lead-detail-grid">

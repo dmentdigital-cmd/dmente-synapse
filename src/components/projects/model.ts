@@ -18,7 +18,10 @@ export type Milestone = { id: string; projectId: string; title: string; phase: s
 export type TaskBrief = { id: string; kind: 'request' | 'commitment'; title: string; domain: string; agentId: AgentId | null; status: string; priority: string | null; startsAt: string | null; dueAt: string | null; nextAction: string }
 export type ProjectUpdate = { id: string; projectId: string; kind: UpdateKind; text: string; author: string; source: 'manual' | 'mcp' | 'bitacora'; resolvedAt: string | null; resolution: string | null; createdAt: string }
 export type Client = { id: string; name: string; contactName: string | null; email: string | null; phone: string | null; industry: string | null; status: 'active' | 'inactive' | 'archived'; notes: string | null }
-export type ProjectDetailData = { project: ProjectSummary; milestones: Milestone[]; tasks: TaskBrief[]; updates: ProjectUpdate[] }
+export type ProjectMetric = { id: string; projectId: string; name: string; unit: string | null; targetTotal: number; plannedToDate: number | null; achieved: number; updatedAt: string }
+export type ProjectInvoice = { id: string; concept: string; amount: number; status: 'pendiente' | 'pagado' | 'anulado'; issuedAt: string | null; dueAt: string | null; paidAt: string | null }
+export type ProjectFinance = { budget: number | null; actualCost: number | null; invoices: ProjectInvoice[]; totals: { invoiced: number; paid: number; pending: number } }
+export type ProjectDetailData = { project: ProjectSummary; milestones: Milestone[]; tasks: TaskBrief[]; updates: ProjectUpdate[]; metrics: ProjectMetric[]; finance: ProjectFinance | null }
 
 export const projectStatusLabels: Record<ProjectStatus, string> = { por_clasificar: 'Por clasificar', propuesta: 'Propuesta', en_curso: 'En curso', pausado: 'Pausado', completado: 'Completado', facturado: 'Facturado', cancelado: 'Cancelado' }
 export const milestoneStatusLabels: Record<MilestoneStatus, string> = { pending: 'Pendiente', in_progress: 'En progreso', blocked: 'Bloqueado', done: 'Cumplido', cancelled: 'Cancelado' }

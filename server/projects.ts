@@ -361,6 +361,7 @@ export function getProjectDetail(id: string, actor: ProjectActor, now = Date.now
     milestones: rows(`SELECT * FROM project_milestones WHERE project_id = ? AND deleted_at IS NULL ${milestoneOrder}`, id).map(milestoneFromRow),
     tasks: tasksByProject(actor).visible.get(id) ?? [],
     updates: rows('SELECT * FROM project_updates WHERE project_id = ? ORDER BY created_at DESC', id).map(updateFromRow),
+    ...projectTracking(id, actor),
   }
 }
 
@@ -592,4 +593,186 @@ export function agendaMilestoneItems(allowDomain: (domain: Domain) => boolean) {
     const project = projects.get(milestone.projectId)!
     return { id: `milestone:${milestone.id}`, kind: 'milestone' as const, requestId: null, commitmentId: null, title: milestone.title, domain: project.domain, projectId: project.id, agentId: milestone.ownerAgentId ?? project.ownerAgentId, status: milestone.status, priority: 'normal' as const, riskLevel: 'low' as const, requiresApproval: false, approvalConfirmed: false, startsAt: milestone.startsAt, dueAt: milestone.dueAt, nextAction: milestone.notes ?? '', sourcePath: null, sourceDriveFolder: null, createdAt: milestone.createdAt, updatedAt: milestone.updatedAt, lastStatusComment: getLatestAgendaStatusComment(`milestone:${milestone.id}`) }
   })
+}
+
+// ---------- tracking: goals, budget, charges and the cut-off report ----------
+// Goals follow the committee model (total, planned to date, achieved). Budget and charges follow
+// the Dmente Hub model and are only visible with access to the finance domain.
+
+const projectColumns = new Set((db.prepare('PRAGMA table_info(projects)').all() as { name: string }[]).map((column) => column.name))
+if (!projectColumns.has('budget')) db.exec('ALTER TABLE projects ADD COLUMN budget REAL')
+if (!projectColumns.has('actual_cost')) db.exec('ALTER TABLE projects ADD COLUMN actual_cost REAL')
+db.exec(`
+  CREATE TABLE IF NOT EXISTS project_metrics (
+    id TEXT PRIMARY KEY, project_id TEXT NOT NULL, name TEXT NOT NULL, unit TEXT, target_total REAL NOT NULL,
+    planned_to_date REAL, achieved REAL NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deleted_at TEXT
+  );
+  CREATE TABLE IF NOT EXISTS project_invoices (
+    id TEXT PRIMARY KEY, project_id TEXT NOT NULL, concept TEXT NOT NULL, amount REAL NOT NULL, status TEXT NOT NULL DEFAULT 'pendiente',
+    issued_at TEXT, due_at TEXT, paid_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+  );
+`)
+
+export type ProjectMetric = { id: string; projectId: string; name: string; unit: string | null; targetTotal: number; plannedToDate: number | null; achieved: number; updatedAt: string }
+export type ProjectInvoice = { id: string; projectId: string; concept: string; amount: number; status: 'pendiente' | 'pagado' | 'anulado'; issuedAt: string | null; dueAt: string | null; paidAt: string | null; updatedAt: string }
+export type ProjectFinance = { budget: number | null; actualCost: number | null; invoices: ProjectInvoice[]; totals: { invoiced: number; paid: number; pending: number } }
+const INVOICE_STATUSES: ProjectInvoice['status'][] = ['pendiente', 'pagado', 'anulado']
+
+const numberOrNull = (value: unknown): number | null => (value === null || value === undefined ? null : Number(value))
+function amount(value: unknown, name: string, required = false): number | null {
+  if (value === null || value === undefined || value === '') {
+    if (required) throw new ProjectError(`${name} es obligatorio.`)
+    return null
+  }
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1e13) throw new ProjectError(`${name} debe ser un número mayor o igual a cero.`)
+  return value
+}
+function metricFromRow(found: Record<string, unknown>): ProjectMetric {
+  return { id: String(found.id), projectId: String(found.project_id), name: String(found.name), unit: nullable(found.unit), targetTotal: Number(found.target_total), plannedToDate: numberOrNull(found.planned_to_date), achieved: Number(found.achieved), updatedAt: String(found.updated_at) }
+}
+function invoiceFromRow(found: Record<string, unknown>): ProjectInvoice {
+  return { id: String(found.id), projectId: String(found.project_id), concept: String(found.concept), amount: Number(found.amount), status: found.status as ProjectInvoice['status'], issuedAt: nullable(found.issued_at), dueAt: nullable(found.due_at), paidAt: nullable(found.paid_at), updatedAt: String(found.updated_at) }
+}
+const listMetrics = (projectId: string) => rows('SELECT * FROM project_metrics WHERE project_id = ? AND deleted_at IS NULL ORDER BY created_at ASC', projectId).map(metricFromRow)
+
+/** Creates the goal or updates the one with the same name, so Lucía can report progress without tracking ids. */
+export function setProjectMetric(projectId: string, input: Record<string, unknown>, actor: ProjectActor): ProjectMetric {
+  requireProject(projectId, actor)
+  onlyKnownKeys(input, ['name', 'unit', 'targetTotal', 'plannedToDate', 'achieved'])
+  const name = clean(input.name, 'name', 120, { required: true })!
+  const existing = row('SELECT * FROM project_metrics WHERE project_id = ? AND name = ? COLLATE NOCASE AND deleted_at IS NULL', projectId, name)
+  const current = existing ? metricFromRow(existing) : null
+  const has = (key: string) => Object.prototype.hasOwnProperty.call(input, key)
+  const next = {
+    unit: has('unit') ? clean(input.unit, 'unit', 40) : current?.unit ?? null,
+    targetTotal: has('targetTotal') || !current ? amount(input.targetTotal, 'targetTotal', true)! : current.targetTotal,
+    plannedToDate: has('plannedToDate') ? amount(input.plannedToDate, 'plannedToDate') : current?.plannedToDate ?? null,
+    achieved: has('achieved') ? amount(input.achieved, 'achieved', true)! : current?.achieved ?? 0,
+  }
+  const now = new Date().toISOString()
+  const id = current?.id ?? randomUUID()
+  // The goal keeps the name it was created with; later reports only need to match it, in any casing.
+  if (current) db.prepare('UPDATE project_metrics SET name = ?, unit = ?, target_total = ?, planned_to_date = ?, achieved = ?, updated_at = ? WHERE id = ?').run(current.name, next.unit, next.targetTotal, next.plannedToDate, next.achieved, now, id)
+  else db.prepare('INSERT INTO project_metrics (id, project_id, name, unit, target_total, planned_to_date, achieved, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, projectId, name, next.unit, next.targetTotal, next.plannedToDate, next.achieved, now, now)
+  addAudit({ action: current ? 'project_metric_updated' : 'project_metric_created', summary: `${projectId}/${id}: ${name}`, source: actor.source, actorId: actor.actorId })
+  return metricFromRow(row('SELECT * FROM project_metrics WHERE id = ?', id)!)
+}
+
+export function deleteProjectMetric(projectId: string, metricId: string, actor: ProjectActor) {
+  requireProject(projectId, actor)
+  const now = new Date().toISOString()
+  if (!Number(db.prepare('UPDATE project_metrics SET deleted_at = ?, updated_at = ? WHERE id = ? AND project_id = ? AND deleted_at IS NULL').run(now, now, metricId, projectId).changes)) throw new ProjectError('Meta no encontrada.', 404)
+  addAudit({ action: 'project_metric_deleted', summary: `${projectId}/${metricId}`, source: actor.source, actorId: actor.actorId })
+  return { deleted: true, id: metricId }
+}
+
+function requireFinance(actor: ProjectActor): void {
+  if (!actor.allowDomain('finance')) throw new ProjectError('No tienes acceso a la información financiera.', 403)
+}
+
+function financeFor(projectId: string): ProjectFinance {
+  const project = row('SELECT budget, actual_cost FROM projects WHERE id = ?', projectId)!
+  const invoices = rows('SELECT * FROM project_invoices WHERE project_id = ? ORDER BY COALESCE(issued_at, created_at) DESC', projectId).map(invoiceFromRow)
+  const sum = (status: ProjectInvoice['status']) => invoices.filter((invoice) => invoice.status === status).reduce((total, invoice) => total + invoice.amount, 0)
+  return { budget: numberOrNull(project.budget), actualCost: numberOrNull(project.actual_cost), invoices, totals: { invoiced: sum('pendiente') + sum('pagado'), paid: sum('pagado'), pending: sum('pendiente') } }
+}
+
+export function setProjectFinance(projectId: string, input: Record<string, unknown>, actor: ProjectActor): ProjectFinance {
+  requireProject(projectId, actor)
+  requireFinance(actor)
+  onlyKnownKeys(input, ['budget', 'actualCost'])
+  const current = financeFor(projectId)
+  const has = (key: string) => Object.prototype.hasOwnProperty.call(input, key)
+  db.prepare('UPDATE projects SET budget = ?, actual_cost = ?, updated_at = ? WHERE id = ?').run(has('budget') ? amount(input.budget, 'budget') : current.budget, has('actualCost') ? amount(input.actualCost, 'actualCost') : current.actualCost, new Date().toISOString(), projectId)
+  addAudit({ action: 'project_finance_updated', summary: projectId, source: actor.source, actorId: actor.actorId })
+  return financeFor(projectId)
+}
+
+/** Creates a charge, or updates it when `id` is given. Charges are never deleted: a wrong one is marked "anulado". */
+export function saveProjectInvoice(projectId: string, input: Record<string, unknown>, actor: ProjectActor): ProjectFinance {
+  requireProject(projectId, actor)
+  requireFinance(actor)
+  onlyKnownKeys(input, ['id', 'concept', 'amount', 'status', 'issuedAt', 'dueAt'])
+  const id = clean(input.id, 'id', 120)
+  const found = id ? row('SELECT * FROM project_invoices WHERE id = ? AND project_id = ?', id, projectId) : undefined
+  if (id && !found) throw new ProjectError('Cobro no encontrado.', 404)
+  const current = found ? invoiceFromRow(found) : null
+  const has = (key: string) => Object.prototype.hasOwnProperty.call(input, key)
+  const status = has('status') ? oneOf(input.status, INVOICE_STATUSES, 'status') : current?.status ?? 'pendiente'
+  const next = {
+    concept: has('concept') || !current ? clean(input.concept, 'concept', 200, { required: true })! : current.concept,
+    amount: has('amount') || !current ? amount(input.amount, 'amount', true)! : current.amount,
+    issuedAt: has('issuedAt') ? dateValue(input.issuedAt, 'issuedAt') : current?.issuedAt ?? null,
+    dueAt: has('dueAt') ? dateValue(input.dueAt, 'dueAt') : current?.dueAt ?? null,
+  }
+  const now = new Date().toISOString()
+  const paidAt = status === 'pagado' ? current?.paidAt ?? now : null
+  if (current) db.prepare('UPDATE project_invoices SET concept = ?, amount = ?, status = ?, issued_at = ?, due_at = ?, paid_at = ?, updated_at = ? WHERE id = ?').run(next.concept, next.amount, status, next.issuedAt, next.dueAt, paidAt, now, current.id)
+  else db.prepare('INSERT INTO project_invoices (id, project_id, concept, amount, status, issued_at, due_at, paid_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(randomUUID(), projectId, next.concept, next.amount, status, next.issuedAt, next.dueAt, paidAt, now, now)
+  addAudit({ action: current ? 'project_invoice_updated' : 'project_invoice_created', summary: projectId, source: actor.source, actorId: actor.actorId })
+  return financeFor(projectId)
+}
+
+/** Goals for everyone who can see the project; budget and charges only with finance access. */
+export function projectTracking(projectId: string, actor: ProjectActor): { metrics: ProjectMetric[]; finance: ProjectFinance | null } {
+  requireProject(projectId, actor)
+  return { metrics: listMetrics(projectId), finance: actor.allowDomain('finance') ? financeFor(projectId) : null }
+}
+
+const STATUS_LABELS: Record<string, string> = { por_clasificar: 'Por clasificar', propuesta: 'Propuesta', en_curso: 'En curso', pausado: 'Pausado', completado: 'Completado', facturado: 'Facturado', cancelado: 'Cancelado', pending: 'Pendiente', in_progress: 'En progreso', blocked: 'Bloqueado', done: 'Cumplido', cancelled: 'Cancelado' }
+const dayText = (value: string | null) => (value ? new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(value)) : 'sin fecha')
+const money = (value: number | null) => (value === null ? 'sin dato' : new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(value))
+const figure = (value: number | null) => (value === null ? '—' : new Intl.NumberFormat('es-CO', { maximumFractionDigits: 2 }).format(value))
+const cell = (value: string | null) => (value ?? '—').replace(/\|/g, '/').replace(/\s+/g, ' ')
+const bogotaDay = (ms: number) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(ms))
+
+/**
+ * Cut-off report for one project and a date range (Colombia days), as Markdown. Every figure is
+ * computed here, so whoever presents it — Diego or Lucía — only has to read it.
+ */
+export function projectReport(id: string, actor: ProjectActor, range: { from?: string | null; to?: string | null } = {}, now = Date.now()) {
+  const { project, milestones, tasks, updates } = getProjectDetail(id, actor, now)
+  const { metrics, finance } = projectTracking(id, actor)
+  const to = range.to || bogotaDay(now)
+  const from = range.from || bogotaDay(Date.parse(`${to}T12:00:00-05:00`) - 30 * DAY_MS)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || Number.isNaN(Date.parse(`${from}T00:00:00-05:00`)) || Number.isNaN(Date.parse(`${to}T00:00:00-05:00`)) || from > to) throw new ProjectError('Indica el rango como from=AAAA-MM-DD y to=AAAA-MM-DD.')
+  const start = Date.parse(`${from}T00:00:00-05:00`)
+  const end = Date.parse(`${to}T23:59:59-05:00`)
+  const inRange = (value: string | null) => Boolean(value) && Date.parse(value!) >= start && Date.parse(value!) <= end
+  const agentNames = new Map(listAgents().map((agent) => [agent.id as string, agent.name]))
+  const owner = (milestone: Milestone) => milestone.ownerName ?? agentNames.get(milestone.ownerAgentId ?? project.ownerAgentId) ?? '—'
+  const counted = milestones.filter((milestone) => milestone.status !== 'cancelled')
+  const period = updates.filter((update) => inRange(update.createdAt))
+  const list = (kind: ProjectUpdateKind) => period.filter((update) => update.kind === kind).map((update) => `- ${dayText(update.createdAt)}: ${update.text}`)
+  const openBlockers = updates.filter((update) => update.kind === 'bloqueo' && !update.resolvedAt)
+  const resolved = updates.filter((update) => update.kind === 'bloqueo' && inRange(update.resolvedAt))
+  const section = (title: string, lines: string[], empty: string) => [`## ${title}`, '', ...(lines.length ? lines : [empty]), '']
+
+  const lines = [
+    `# Informe de seguimiento — ${project.name}`, '',
+    `**Corte:** ${dayText(`${from}T12:00:00-05:00`)} a ${dayText(`${to}T12:00:00-05:00`)} · **Generado:** ${dayText(new Date(now).toISOString())} (hora Colombia)`, '',
+    '## Estado', '',
+    `- **Estado:** ${STATUS_LABELS[project.status]}${project.health ? ` · **Semáforo:** ${project.health}` : ''}`,
+    ...(project.healthReasons.length ? [`- **Alertas:** ${project.healthReasons.join('; ')}`] : []),
+    `- **Avance:** ${project.progress === null ? 'sin hitos definidos' : `${project.progress} % (${project.milestoneCounts.done} de ${project.milestoneCounts.total} hitos cumplidos)`}`,
+    `- **Cliente:** ${project.clientName ?? 'sin cliente'} · **Responsable:** ${agentNames.get(project.ownerAgentId) ?? project.ownerAgentId}`,
+    `- **Tareas abiertas:** ${project.openTasks} de ${tasks.length}`,
+    ...(project.nextAction ? [`- **Siguiente acción:** ${project.nextAction}`] : []), '',
+    ...section('Compromisos e hitos', counted.length ? ['| Hito | Fase | Responsable | Vence | Estado |', '|---|---|---|---|---|', ...counted.map((milestone) => {
+      const late = isOverdue(milestone, now) ? ` (atrasado ${brief(milestone, now).daysLate} d)` : ''
+      return `| ${cell(milestone.title)} | ${cell(milestone.phase)} | ${cell(owner(milestone))} | ${dayText(milestone.dueAt)} | ${STATUS_LABELS[milestone.status]}${late} |`
+    })] : [], 'Sin hitos definidos.'),
+    ...section('Metas', metrics.length ? ['| Meta | Unidad | Total | Planeada a la fecha | Alcanzada | % de la meta |', '|---|---|---|---|---|---|', ...metrics.map((metric) => `| ${cell(metric.name)} | ${cell(metric.unit)} | ${figure(metric.targetTotal)} | ${figure(metric.plannedToDate)} | ${figure(metric.achieved)} | ${metric.targetTotal > 0 ? `${Math.round((metric.achieved / metric.targetTotal) * 100)} %` : '—'} |`)] : [], 'Sin metas definidas.'),
+    ...section('Bloqueos abiertos', openBlockers.map((update) => `- Desde ${dayText(update.createdAt)}: ${update.text}`), 'Ninguno.'),
+    ...section('Avances del periodo', list('avance'), 'Sin avances registrados en el periodo.'),
+    ...section('Bloqueos resueltos en el periodo', resolved.map((update) => `- ${update.text}${update.resolution ? ` — ${update.resolution}` : ''}`), 'Ninguno.'),
+    ...section('Riesgos y retos', list('riesgo'), 'Sin riesgos registrados en el periodo.'),
+    ...section('Decisiones', list('decision'), 'Sin decisiones registradas en el periodo.'),
+    ...section('Lecciones aprendidas', list('leccion'), 'Sin lecciones registradas en el periodo.'),
+    ...(finance ? section('Presupuesto y cobros', [
+      `- **Presupuesto:** ${money(finance.budget)} · **Costo real:** ${money(finance.actualCost)}`,
+      `- **Cobrado:** ${money(finance.totals.invoiced)} · **Pagado:** ${money(finance.totals.paid)} · **Por cobrar:** ${money(finance.totals.pending)}`,
+    ], '') : []),
+  ]
+  return { projectId: project.id, from, to, markdown: lines.join('\n').trimEnd() + '\n' }
 }

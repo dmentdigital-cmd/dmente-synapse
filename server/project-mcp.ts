@@ -1,4 +1,4 @@
-import { addProjectUpdate, createMilestone, createProject, getProjectDetail, listProjects, MILESTONE_STATUSES, PROJECT_STATUSES, projectsDigest, resolveBlocker, UPDATE_KINDS, updateMilestone, updateProject, type ProjectActor } from './projects.js'
+import { addProjectUpdate, createMilestone, createProject, getProjectDetail, projectReport, setProjectMetric, listProjects, MILESTONE_STATUSES, PROJECT_STATUSES, projectsDigest, resolveBlocker, UPDATE_KINDS, updateMilestone, updateProject, type ProjectActor } from './projects.js'
 import type { Domain } from './types.js'
 
 // Project tools for Lucía. Reading needs no write scope; every write shares the validation of the
@@ -8,7 +8,7 @@ const nullableIsoDate = { type: ['string', 'null'], description: 'Fecha ISO con 
 const projectChanges = { name: { type: 'string', maxLength: 200 }, code: { type: ['string', 'null'], description: 'Código corto en mayúsculas, el mismo que usa Bitácora (ej. CORPAV).' }, clientId: { type: ['string', 'null'] }, domain: { type: 'string' }, ownerAgentId: { type: 'string' }, status: { type: 'string', enum: PROJECT_STATUSES }, startsAt: nullableIsoDate, dueAt: nullableIsoDate, nextAction: { type: ['string', 'null'], maxLength: 2000 }, sourcePath: { type: ['string', 'null'] }, sourceDriveFolder: { type: ['string', 'null'] }, obsidianNote: { type: ['string', 'null'] } }
 const milestoneChanges = { title: { type: 'string', maxLength: 200 }, phase: { type: ['string', 'null'], description: 'Etiqueta para agrupar hitos, por ejemplo Descubrimiento.' }, ownerAgentId: { type: ['string', 'null'] }, ownerName: { type: ['string', 'null'], description: 'Persona responsable cuando no es un agente.' }, startsAt: nullableIsoDate, dueAt: isoDate, status: { type: 'string', enum: MILESTONE_STATUSES }, sortOrder: { type: 'integer', minimum: 0 }, notes: { type: ['string', 'null'], maxLength: 2000 } }
 
-export const projectReadOnlyTools = ['synapse_list_projects', 'synapse_get_project', 'synapse_projects_digest']
+export const projectReadOnlyTools = ['synapse_list_projects', 'synapse_get_project', 'synapse_projects_digest', 'synapse_project_report']
 
 export const projectToolDefinitions = [
   { name: 'synapse_list_projects', description: 'Lista los proyectos con estado, semáforo (rojo, amarillo, verde), avance por hitos, próximo hito y tareas abiertas. Los valores los calcula Synapse; no los estimes.', inputSchema: { type: 'object', properties: { status: { type: 'string', enum: PROJECT_STATUSES } } } },
@@ -19,6 +19,8 @@ export const projectToolDefinitions = [
   { name: 'synapse_create_milestone', description: 'Agrega un hito al cronograma de un proyecto. Con externalId estable, repetir la llamada actualiza el mismo hito en vez de duplicarlo.', inputSchema: { type: 'object', properties: { projectId: { type: 'string' }, ...milestoneChanges, externalId: { type: 'string' } }, required: ['projectId', 'title', 'dueAt'] } },
   { name: 'synapse_update_milestone', description: 'Edita un hito o cambia su estado. Primero consulta el proyecto para verificar el id del hito.', inputSchema: { type: 'object', properties: { projectId: { type: 'string' }, milestoneId: { type: 'string' }, changes: { type: 'object', additionalProperties: false, properties: { ...milestoneChanges, comment: { type: 'string', description: 'Contexto del cambio de estado.' } } } }, required: ['projectId', 'milestoneId', 'changes'] } },
   { name: 'synapse_add_project_update', description: 'Registra una novedad del proyecto: avance, bloqueo, riesgo, decisión o lección. Un bloqueo queda abierto hasta resolverlo. Las novedades no se editan ni se borran.', inputSchema: { type: 'object', properties: { projectId: { type: 'string' }, kind: { type: 'string', enum: UPDATE_KINDS }, text: { type: 'string', maxLength: 2000 }, externalId: { type: 'string', description: 'ID estable de la fuente para no duplicar al reintentar.' } }, required: ['projectId', 'kind', 'text'] } },
+  { name: 'synapse_project_report', description: 'Genera el informe de seguimiento de un proyecto en Markdown para un rango de fechas: estado, hitos con responsable, metas (total, planeada, alcanzada), bloqueos, avances, riesgos, decisiones y lecciones. Sin rango usa los últimos 30 días. Las cifras ya vienen calculadas.', inputSchema: { type: 'object', properties: { projectId: { type: 'string' }, from: { type: 'string', description: 'AAAA-MM-DD' }, to: { type: 'string', description: 'AAAA-MM-DD' } }, required: ['projectId'] } },
+  { name: 'synapse_set_project_metric', description: 'Crea una meta del proyecto o actualiza la que tenga el mismo nombre: meta total, planeada a la fecha y alcanzada. Úsala para reportar avance de metas.', inputSchema: { type: 'object', properties: { projectId: { type: 'string' }, name: { type: 'string', maxLength: 120 }, unit: { type: ['string', 'null'] }, targetTotal: { type: 'number', minimum: 0 }, plannedToDate: { type: ['number', 'null'], minimum: 0 }, achieved: { type: 'number', minimum: 0 } }, required: ['projectId', 'name'] } },
   { name: 'synapse_resolve_blocker', description: 'Marca como resuelto un bloqueo abierto de un proyecto.', inputSchema: { type: 'object', properties: { projectId: { type: 'string' }, updateId: { type: 'string' }, resolution: { type: 'string', maxLength: 2000 } }, required: ['projectId', 'updateId'] } },
 ]
 
@@ -51,6 +53,11 @@ export function callProjectTool(name: string, args: Record<string, unknown>, acc
   if (name === 'synapse_add_project_update') {
     const { projectId, ...fields } = args
     return { update: addProjectUpdate(required(projectId, 'projectId'), fields, actor) }
+  }
+  if (name === 'synapse_project_report') return projectReport(required(args.projectId, 'projectId'), actor, { from: typeof args.from === 'string' ? args.from : null, to: typeof args.to === 'string' ? args.to : null })
+  if (name === 'synapse_set_project_metric') {
+    const { projectId, ...fields } = args
+    return { metric: setProjectMetric(required(projectId, 'projectId'), fields, actor) }
   }
   if (name === 'synapse_resolve_blocker') return { update: resolveBlocker(required(args.projectId, 'projectId'), required(args.updateId, 'updateId'), args.resolution === undefined ? {} : { resolution: args.resolution }, actor) }
   throw new Error(`Herramienta no encontrada: ${name}`)

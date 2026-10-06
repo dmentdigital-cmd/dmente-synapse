@@ -312,3 +312,8 @@ span.milestone-status { display: inline-block; }
 /* Seven sections no longer fit a narrow phone at a readable size, so the bottom bar scrolls sideways instead of shrinking the labels. */
 @media (max-width: 620px) { .main-nav { justify-content: flex-start; overflow-x: auto; scrollbar-width: none; } .main-nav::-webkit-scrollbar { display: none; } .main-nav .nav-item { flex: 1 0 auto; min-width: 46px; } .projects-panel { min-height: calc(100vh - 125px); } }
 @media (prefers-reduced-motion: reduce) { .project-progress > span i { transition: none; } }
+.metric-list li > div:first-child, .finance-list li > div:first-child { flex: 1; } .metric-percent { color: var(--ink); font-size: 14px; }
+.project-report-form { display: flex; align-items: end; flex-wrap: wrap; gap: 10px; margin-top: 20px; padding: 14px; border: 1px solid rgba(248,250,252,.09); border-radius: 11px; background: rgba(2,6,23,.3); }
+.project-report-form > strong { flex-basis: 100%; color: var(--ink); font-size: 12px; } .project-report-form > small { flex-basis: 100%; color: rgba(248,250,252,.45); font-size: 10px; } .project-report-form .agenda-close { min-height: 37px; }
+.project-report { margin-top: 12px; } .project-report pre { max-height: 420px; margin: 0; padding: 14px; overflow: auto; border: 1px solid rgba(248,250,252,.1); border-radius: 10px; color: rgba(248,250,252,.86); background: rgba(2,6,23,.55); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.project-report pre:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
