@@ -57,12 +57,31 @@ function App({ onLogout, role, userId, domains, mfaEnabled, mfaManaged, mfaEnrol
   const [addAgentOpen, setAddAgentOpen] = useState(false)
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [installed, setInstalled] = useState(() => window.matchMedia('(display-mode: standalone)').matches || Boolean((navigator as Navigator & { standalone?: boolean }).standalone))
+  const [updateAvailable, setUpdateAvailable] = useState(false)
   const agent = agents[activeAgent]
   const canViewLeads = !mfaEnrollmentRequired && (role === 'admin' || Boolean(domains?.includes('sales')))
   const pendingCount = Object.values(pending).filter(Boolean).length
   const orderedAgents = useMemo(() => Object.entries(agents) as [AgentId, typeof agents[AgentId]][], [])
   // Project milestones show in the Agenda only; the office keeps reacting to tasks alone.
   const officeItems = useMemo(() => agendaItems.filter((item) => item.kind !== 'milestone'), [agendaItems])
+
+  useEffect(() => {
+    if (__BUILD_COMMIT__ === 'unknown') return
+    let cancelled = false
+    async function checkVersion() {
+      try {
+        const response = await fetch('/api/version', { cache: 'no-store' })
+        if (!response.ok) return
+        const version = await response.json() as { sourceCommit?: string }
+        if (!cancelled && version.sourceCommit && version.sourceCommit !== 'unknown' && version.sourceCommit !== __BUILD_COMMIT__) setUpdateAvailable(true)
+      } catch { /* La conexión se comprobará de nuevo al volver a la página. */ }
+    }
+    const onFocus = () => { void checkVersion() }
+    void checkVersion()
+    const interval = window.setInterval(onFocus, 60000)
+    window.addEventListener('focus', onFocus)
+    return () => { cancelled = true; window.clearInterval(interval); window.removeEventListener('focus', onFocus) }
+  }, [])
 
   useEffect(() => {
     const syncSection = () => setSection(sectionFromHash(window.location.hash))
@@ -188,6 +207,7 @@ function App({ onLogout, role, userId, domains, mfaEnabled, mfaManaged, mfaEnrol
 
   return <div className="app-shell">
     <Topbar section={section} pendingCount={pendingCount} canViewLeads={canViewLeads} setSection={openSection} setActiveAgent={setActiveAgent} onAddAgent={() => setAddAgentOpen(true)} onLogout={onLogout} />
+    {updateAvailable && <div className="update-notice" role="status"><span>Hay una versión más reciente de Synapse.</span><button type="button" onClick={() => window.location.reload()}>Actualizar ahora</button></div>}
     <main className="workspace">
       {section === 'leads' && canViewLeads ? <Suspense fallback={<div className="leads-empty" role="status">Cargando vista de leads...</div>}><LeadsPanel onClose={() => openSection('office')} /></Suspense> : section === 'projects' && !mfaEnrollmentRequired ? <ProjectsErrorBoundary onClose={() => openSection('office')}><Suspense fallback={<div className="leads-empty" role="status">Cargando proyectos...</div>}><ProjectsPanel role={role} onClose={() => openSection('office')} /></Suspense></ProjectsErrorBoundary> : section === 'agenda' ? <AgendaErrorBoundary onClose={() => openSection('office')}><OperationalAgenda items={agendaItems} loadError={apiError} onCreate={createAgendaItem} onEdit={editAgendaItem} onDelete={deleteAgendaItem} onUpdateStatus={updateAgendaStatus} onApprove={approveAgendaItem} onClose={() => openSection('office')} /></AgendaErrorBoundary> : <>
         <OfficeStage activeAgent={activeAgent} pending={pending} processing={processing} pendingCount={pendingCount} agendaItems={officeItems} setActiveAgent={setActiveAgent} />
