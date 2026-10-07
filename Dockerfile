@@ -1,5 +1,4 @@
 FROM node:24-bookworm-slim AS build
-ARG SOURCE_COMMIT=unknown
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci

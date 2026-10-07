@@ -6,7 +6,7 @@ type Props = { section: Section; pendingCount: number; canViewLeads: boolean; se
 export function Topbar({ section, pendingCount, canViewLeads, setSection, setActiveAgent, onAddAgent, onLogout }: Props) {
   const buildDate = new Date(__BUILD_AT__).toLocaleDateString('es-CO', { timeZone: 'America/Bogota', day: '2-digit', month: 'short', year: 'numeric' })
   return <header className="topbar">
-    <div className="brand-lockup"><img className="brand-logo" src="/assets/dmente-synapse-icon.png" alt="Dmente Synapse" /><span className="brand-copy"><span>Dmente <b>Synapse</b></span><small className="release-stamp" title={`Compilada el ${buildDate}${__BUILD_COMMIT__ !== 'unknown' ? ` · Commit ${__BUILD_COMMIT__}` : ''}`}>v{__APP_VERSION__} · {buildDate}</small></span></div>
+    <div className="brand-lockup"><img className="brand-logo" src="/assets/dmente-synapse-icon.png" alt="Dmente Synapse" /><span className="brand-copy"><span>Dmente <b>Synapse</b></span><small className="release-stamp" title={`Compilada el ${buildDate}`}>v{__APP_VERSION__} · {buildDate}</small></span></div>
     <nav className="main-nav" aria-label="Navegación principal">
       <button type="button" className={section === 'office' ? 'nav-item active' : 'nav-item'} onClick={() => setSection('office')}><Home size={17} /> Oficina</button>
       <button type="button" className={section === 'agents' ? 'nav-item active' : 'nav-item'} onClick={() => setSection('agents')}><Sparkles size={17} /> Agentes</button>

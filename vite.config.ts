@@ -9,7 +9,6 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(version),
     __BUILD_AT__: JSON.stringify(new Date().toISOString()),
-    __BUILD_COMMIT__: JSON.stringify(process.env.SOURCE_COMMIT || 'unknown'),
   },
   server: { proxy: { '/api': 'http://127.0.0.1:3010' } },
 })

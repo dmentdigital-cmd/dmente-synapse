@@ -66,14 +66,16 @@ function App({ onLogout, role, userId, domains, mfaEnabled, mfaManaged, mfaEnrol
   const officeItems = useMemo(() => agendaItems.filter((item) => item.kind !== 'milestone'), [agendaItems])
 
   useEffect(() => {
-    if (__BUILD_COMMIT__ === 'unknown') return
+    const currentScript = document.querySelector<HTMLScriptElement>('script[type="module"][src]')?.getAttribute('src')
+    if (!currentScript) return
     let cancelled = false
     async function checkVersion() {
       try {
-        const response = await fetch('/api/version', { cache: 'no-store' })
+        const response = await fetch(`/?version-check=${Date.now()}`, { cache: 'no-store' })
         if (!response.ok) return
-        const version = await response.json() as { sourceCommit?: string }
-        if (!cancelled && version.sourceCommit && version.sourceCommit !== 'unknown' && version.sourceCommit !== __BUILD_COMMIT__) setUpdateAvailable(true)
+        const html = new DOMParser().parseFromString(await response.text(), 'text/html')
+        const latestScript = html.querySelector<HTMLScriptElement>('script[type="module"][src]')?.getAttribute('src')
+        if (!cancelled && latestScript && latestScript !== currentScript) setUpdateAvailable(true)
       } catch { /* La conexión se comprobará de nuevo al volver a la página. */ }
     }
     const onFocus = () => { void checkVersion() }
