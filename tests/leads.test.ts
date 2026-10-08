@@ -24,7 +24,7 @@ let db: DatabaseSync
 const sample = {
   name: 'Laura Gómez', email: 'LAURA@EXAMPLE.COM', whatsapp: '+57 300 123 4567',
   company: 'Empresa Ejemplo', service: 'Automatización con IA', message: 'Quiero agendar una llamada.',
-  language: 'es', origin: { utm_source: 'google', utm_campaign: 'x', page: 'https://dmentedigital.co/' },
+  language: 'es', origin: { utm_source: 'google', utm_campaign: 'x', page: 'https://dmentedigital.co/?email=private@example.com#contacto' },
 }
 
 async function submit(body: unknown, options: { authorization?: string | null; key?: string; address?: string; origin?: string } = {}) {
@@ -47,7 +47,7 @@ before(async () => {
   let output = ''
   child.stdout?.on('data', (chunk) => { output += String(chunk) })
   child.stderr?.on('data', (chunk) => { output += String(chunk) })
-  for (let attempt = 0; attempt < 80; attempt += 1) {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
     if (child.exitCode !== null) throw new Error(output)
     try {
       if ((await fetch(`${base}/api/health`)).ok) {
@@ -63,7 +63,7 @@ before(async () => {
 after(async () => {
   db?.close()
   if (child && child.exitCode === null) await new Promise<void>((resolve) => { child.once('exit', resolve); child.kill() })
-  rmSync(dataDir, { recursive: true, force: true })
+  rmSync(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 })
 
 test('creates a normalized lead with configured routing and no CORS headers', async () => {
@@ -76,6 +76,7 @@ test('creates a normalized lead with configured routing and no CORS headers', as
   assert.equal(row.email, 'laura@example.com')
   assert.equal(row.phone, '+573001234567')
   assert.equal(row.pipeline, 'comercial')
+  assert.equal(row.page, 'https://dmentedigital.co/')
   assert.equal(row.stage, 'entrada')
   assert.equal(row.owner_id, 'ventas-test')
   assert.equal(row.status, 'new')
@@ -167,6 +168,8 @@ test('authenticated sales read is paginated and a user without sales access is d
   const loginResponse = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base }, body: JSON.stringify({ username: env.SYNAPSE_OWNER_USERNAME, password: env.SYNAPSE_OWNER_PASSWORD }) })
   assert.equal(loginResponse.status, 200)
   const adminCookie = loginResponse.headers.get('set-cookie')!.split(';')[0]
+  const acceptance = await fetch(`${base}/api/account/terms-acceptance`, { method: 'POST', headers: { Cookie: adminCookie, Origin: base, 'Content-Type': 'application/json' }, body: JSON.stringify({ accepted: true }) })
+  assert.equal(acceptance.status, 200)
   const first = await fetch(`${base}/api/leads?limit=1&offset=0`, { headers: { Cookie: adminCookie } })
   assert.equal(first.status, 200)
   const firstPage = await first.json() as { leads: Array<{ id: string }>; total: number }

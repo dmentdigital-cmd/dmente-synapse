@@ -4,7 +4,7 @@ import { readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { URL } from 'node:url'
 import { accessFromRequest, authConfigured, authStatus, beginTotpSetup, clearSession, clearSessionCookie, confirmTotpSetup, disableTotp, hashPassword, login, loginBlocked, mfaEnabledForUser, mfaManagedForUser, recordAuthFailure, revokeUserSessions, sessionFromRequest, setSessionCookie, totpEncryptionConfigured, validateProductionSecurityConfiguration, verifyAccountPasswordAndMfa } from './auth.js'
-import { addAudit, addMessage, closeDatabase, confirmRequestApproval, createCommitment, createRequest, createUserAccount, findUserById, findUserByUsername, getLatestAgendaStatusComment, getLocalProfile, getRequest, ingestLead, listAgents, listCommitments, listLeads, listMessages, listPermissions, listRequests, listUserAccounts, recordAgendaStatusChange, updateCommitmentStatus, updateRequestSources, updateRequestStatus, updateUserAccount } from './db.js'
+import { acceptCurrentTerms, addAudit, addMessage, closeDatabase, confirmRequestApproval, createCommitment, createRequest, createUserAccount, findUserById, findUserByUsername, getAccountDataDeletionRequest, getLatestAgendaStatusComment, getLocalProfile, getRequest, guardianAuthorization, ingestLead, listAgents, listCommitments, listLeads, listMessages, listPendingDataDeletionRequests, listPendingGuardianAuthorizations, listPermissions, listRequests, listUserAccounts, recordAgendaStatusChange, requestAccountDataDeletion, revokeGuardianAuthorization, submitGuardianAuthorization, termsAcceptedAt, updateCommitmentStatus, updateRequestSources, updateRequestStatus, updateUserAccount, verifyGuardianAuthorization } from './db.js'
 import { buildReply, routeRequest } from './orchestrator.js'
 import { authorizedWriteForDomain, handleMcp } from './mcp.js'
 import { getHermesStatus, isHermesConfigured, requestHermesReply } from './hermes.js'
@@ -34,13 +34,20 @@ function requireSession(req: IncomingMessage, res: ServerResponse, allowedRoles:
   const session = accessFromRequest(req)
   if (!session) { send(res, 401, { error: 'Inicia sesión para consultar datos operativos.' }); return null }
   if (!allowedRoles.includes(session.role)) { send(res, 403, { error: 'Tu rol no permite esta acción.' }); return null }
+  if (!allowMfaEnrollment && !termsAcceptedAt(session.userId)) { send(res, 403, { error: 'Acepta los términos y la política de privacidad para continuar.' }); return null }
   if (process.env.NODE_ENV === 'production' && session.role === 'admin' && !mfaEnabledForUser(session.userId) && !allowMfaEnrollment) {
     send(res, 403, { error: 'Activa la autenticación de dos pasos para habilitar el acceso administrativo.' }); return null
   }
   return session
 }
 
-function inDomain(session: NonNullable<ReturnType<typeof accessFromRequest>>, domain: Domain): boolean { return session.role === 'admin' || session.domains.includes(domain) }
+function inDomain(session: NonNullable<ReturnType<typeof accessFromRequest>>, domain: Domain): boolean {
+  if (session.role === 'admin') return true
+  if (!session.domains.includes(domain)) return false
+  if (!['family', 'health', 'education'].includes(domain)) return true
+  const authorization = guardianAuthorization(session.userId)
+  return Boolean(authorization?.verifiedAt && !authorization.revokedAt)
+}
 
 function agendaItemFromRequest(request: ReturnType<typeof listRequests>[number]) {
   return { id: request.id, kind: 'request' as const, requestId: request.id, commitmentId: null, title: request.title, domain: request.domain, projectId: request.projectId, agentId: request.agentId, status: request.status, priority: request.priority, riskLevel: request.riskLevel, requiresApproval: request.requiresApproval, approvalConfirmed: request.approvalConfirmed, startsAt: request.startsAt, dueAt: request.dueAt, nextAction: request.nextAction, sourcePath: request.sourcePath, sourceDriveFolder: request.sourceDriveFolder, createdAt: request.createdAt, updatedAt: request.updatedAt, lastStatusComment: getLatestAgendaStatusComment(request.id) }
@@ -149,6 +156,65 @@ const server = createServer(async (req, res) => {
       return send(res, 200, { ok: true, service: 'dmente-synapse-api', hermesAutomaticReplies: hermes.configured, hermesReachable: hermes.reachable, hermesLastError: hermes.lastError, time: new Date().toISOString() })
     }
     if (req.method === 'GET' && url.pathname === '/api/auth/session') return send(res, 200, authStatus(req))
+    if (req.method === 'POST' && url.pathname === '/api/account/terms-acceptance') {
+      const session = accessFromRequest(req)
+      if (!session) return send(res, 401, { error: 'Inicia sesión para aceptar los términos.' })
+      const input = await readJsonBody(req)
+      if (input.accepted !== true) return send(res, 400, { error: 'La aceptación debe ser explícita.' })
+      const acceptedAt = acceptCurrentTerms(session.userId)
+      addAudit({ action: 'terms_accepted', summary: 'Términos de pruebas y política de privacidad aceptados', source: 'manual', actorId: session.userId })
+      return send(res, 200, { acceptedAt })
+    }
+    if (req.method === 'GET' && url.pathname === '/api/account/data-deletion-request') {
+      const session = requireSession(req, res, validRoles, true); if (!session) return
+      return send(res, 200, { request: getAccountDataDeletionRequest(session.userId) })
+    }
+    if (req.method === 'GET' && url.pathname === '/api/admin/data-deletion-requests') {
+      const session = requireSession(req, res, ['admin']); if (!session) return
+      return send(res, 200, { requests: listPendingDataDeletionRequests() })
+    }
+    if (req.method === 'POST' && url.pathname === '/api/account/data-deletion-request') {
+      const session = requireSession(req, res, validRoles, true); if (!session) return
+      const input = await readJsonBody(req)
+      if (text(input.confirmation) !== 'SOLICITAR BORRADO') return send(res, 400, { error: 'Escribe SOLICITAR BORRADO para confirmar.' })
+      const request = requestAccountDataDeletion(session.userId)
+      addAudit({ action: 'account_data_deletion_requested', summary: 'Solicitud de borrado de datos recibida', source: 'manual', actorId: session.userId })
+      return send(res, 202, { request })
+    }
+    if (req.method === 'GET' && url.pathname === '/api/account/guardian-authorization') {
+      const session = requireSession(req, res); if (!session) return
+      return send(res, 200, { authorization: guardianAuthorization(session.userId) })
+    }
+    if (req.method === 'POST' && url.pathname === '/api/account/guardian-authorization') {
+      const session = requireSession(req, res); if (!session) return
+      const input = await readJsonBody(req)
+      const guardianName = text(input.guardianName)
+      const relationship = text(input.relationship)
+      if (guardianName.length < 3 || guardianName.length > 120 || !['madre', 'padre', 'representante legal'].includes(relationship) || input.authorized !== true) return send(res, 400, { error: 'Indica tu nombre, vínculo y autorización expresa.' })
+      submitGuardianAuthorization(session.userId, guardianName, relationship)
+      addAudit({ action: 'guardian_authorization_submitted', summary: 'Autorización de representante solicitada', source: 'manual', actorId: session.userId })
+      return send(res, 202, { authorization: guardianAuthorization(session.userId) })
+    }
+    if (req.method === 'DELETE' && url.pathname === '/api/account/guardian-authorization') {
+      const session = requireSession(req, res); if (!session) return
+      const revoked = revokeGuardianAuthorization(session.userId)
+      if (revoked) addAudit({ action: 'guardian_authorization_revoked', summary: 'Autorización parental revocada', source: 'manual', actorId: session.userId })
+      return send(res, 200, { revoked })
+    }
+    if (req.method === 'GET' && url.pathname === '/api/admin/guardian-authorizations') {
+      const session = requireSession(req, res, ['admin']); if (!session) return
+      return send(res, 200, { requests: listPendingGuardianAuthorizations() })
+    }
+    if (req.method === 'POST' && url.pathname === '/api/admin/guardian-authorizations/verify') {
+      const session = requireSession(req, res, ['admin']); if (!session) return
+      const input = await readJsonBody(req)
+      const userId = text(input.userId)
+      const evidenceReference = text(input.evidenceReference)
+      if (!userId || evidenceReference.length < 8 || evidenceReference.length > 200) return send(res, 400, { error: 'Registra una referencia de verificación de 8 a 200 caracteres, sin incluir documentos personales.' })
+      if (!verifyGuardianAuthorization(userId, session.userId, evidenceReference)) return send(res, 409, { error: 'No se pudo verificar esta autorización. No puedes verificar la tuya.' })
+      addAudit({ action: 'guardian_authorization_verified', summary: 'Representación parental verificada', source: 'manual', actorId: session.userId })
+      return send(res, 200, { verified: true })
+    }
     if (req.method === 'POST' && url.pathname === '/api/auth/login') {
       const input = await readJsonBody(req)
       const address = clientAddress(req)
@@ -399,7 +465,8 @@ const server = createServer(async (req, res) => {
       if (!conversationAgent || !inDomain(session, conversationAgent.domain)) return send(res, 403, { error: 'No tienes permiso para usar ese agente.' })
       const request = createRequest({ agentId: decision.agentId, domain: decision.domain, title: message.slice(0, 120), projectId: decision.projectId, priority: decision.priority, riskLevel: decision.riskLevel, requiresApproval: decision.requiresApproval, nextAction: decision.nextAction })
       addMessage({ requestId: request.id, agentId: conversationAgentId, domain: decision.domain, direction: 'user', text: message })
-      if (isHermesConfigured()) {
+      const sensitiveDomain = ['family', 'health', 'education'].includes(decision.domain)
+      if (isHermesConfigured() && (!sensitiveDomain || process.env.SYNAPSE_SENSITIVE_AI_ENABLED === 'true')) {
         void completeWithHermes({ requestId: request.id, conversationAgentId, decision })
         addAudit({ requestId: request.id, action: 'hermes_reply_queued', summary: `${decision.agentId}/${decision.domain}`, source: 'synapse-api' })
         return send(res, 202, { request, decision, conversationAgentId, processing: true })

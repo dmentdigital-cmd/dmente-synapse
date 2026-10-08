@@ -17,7 +17,7 @@ async function start() {
   let output = ''
   child.stdout?.on('data', (chunk) => { output += String(chunk) })
   child.stderr?.on('data', (chunk) => { output += String(chunk) })
-  for (let count = 0; count < 80; count++) {
+  for (let count = 0; count < 400; count++) {
     if (child.exitCode !== null) throw new Error(output)
     try { if ((await fetch(`${base}/api/health`)).ok) return } catch { /* Wait for server startup. */ }
     await new Promise((resolve) => setTimeout(resolve, 100))
@@ -32,6 +32,10 @@ async function login() {
   const response = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base }, body: JSON.stringify({ username: env.SYNAPSE_OWNER_USERNAME, [envKey('password')]: env[envKey('SYNAPSE', 'OWNER', 'PASSWORD')] }) })
   assert.equal(response.status, 200)
   cookie = response.headers.get('set-cookie')!.split(';')[0]
+  const status = await api('/api/auth/session')
+  if (!status.data.termsAccepted) assert.equal((await api('/api/profile')).status, 403)
+  const acceptance = await fetch(`${base}/api/account/terms-acceptance`, { method: 'POST', headers: { Cookie: cookie, Origin: base, 'Content-Type': 'application/json' }, body: JSON.stringify({ accepted: true }) })
+  assert.equal(acceptance.status, 200)
 }
 async function api(route: string, method = 'GET', body?: unknown, authenticated = true, origin = base) {
   const response = await fetch(`${base}${route}`, { method, headers: { ...(authenticated ? { Cookie: cookie } : {}), Origin: origin, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body) })
@@ -42,7 +46,49 @@ async function mcp(name: string, args: unknown, scope = 'write') {
   return await response.json() as any
 }
 before(async () => { await start(); await login() })
-after(async () => { await stop(); rmSync(dataDir, { recursive: true, force: true }) })
+after(async () => { await stop(); rmSync(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) })
+
+test('data deletion requests are visible to their owner and to an admin without creating duplicates', async () => {
+  const invalid = await api('/api/account/data-deletion-request', 'POST', { confirmation: 'no' })
+  assert.equal(invalid.status, 400)
+  const first = await api('/api/account/data-deletion-request', 'POST', { confirmation: 'SOLICITAR BORRADO' })
+  assert.equal(first.status, 202)
+  const repeated = await api('/api/account/data-deletion-request', 'POST', { confirmation: 'SOLICITAR BORRADO' })
+  assert.equal(repeated.data.request.id, first.data.request.id)
+  const own = await api('/api/account/data-deletion-request')
+  assert.equal(own.data.request.id, first.data.request.id)
+  const pending = await api('/api/admin/data-deletion-requests')
+  assert.equal(pending.data.requests.some((item: { id: string }) => item.id === first.data.request.id), true)
+})
+
+test('sensitive domains require an independently verified guardian authorization for a regular account', async () => {
+  const fixturePassword = ['fixture', 'guardian', 'credential'].join('-')
+  const created = await api('/api/admin/users', 'POST', { username: 'guardian-fixture', name: 'Guardian Fixture', password: fixturePassword, role: 'viewer', domains: ['family'] })
+  assert.equal(created.status, 201)
+  const familyItem = await api('/api/commitments', 'POST', { title: 'Prueba de acceso familiar', domain: 'family' })
+  assert.equal(familyItem.status, 201)
+  const loginResponse = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { Origin: base, 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'guardian-fixture', password: fixturePassword }) })
+  assert.equal(loginResponse.status, 200)
+  const userCookie = loginResponse.headers.get('set-cookie')!.split(';')[0]
+  const asGuardian = async (route: string, method = 'GET', body?: unknown) => {
+    const response = await fetch(`${base}${route}`, { method, headers: { Cookie: userCookie, Origin: base, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body) })
+    return { status: response.status, data: await response.json() as any }
+  }
+  assert.equal((await asGuardian('/api/agents')).status, 403)
+  assert.equal((await asGuardian('/api/account/terms-acceptance', 'POST', { accepted: true })).status, 200)
+  assert.equal((await asGuardian('/api/commitments?domain=family')).status, 403)
+  assert.equal((await asGuardian('/api/account/guardian-authorization', 'POST', { guardianName: 'Test Guardian', relationship: 'padre', authorized: false })).status, 400)
+  assert.equal((await asGuardian('/api/account/guardian-authorization', 'POST', { guardianName: 'Test Guardian', relationship: 'padre', authorized: true })).status, 202)
+  assert.equal((await asGuardian('/api/commitments?domain=family')).status, 403)
+  const pending = await api('/api/admin/guardian-authorizations')
+  assert.equal(pending.data.requests.some((item: { userId: string }) => item.userId === created.data.user.id), true)
+  assert.equal((await asGuardian('/api/admin/guardian-authorizations/verify', 'POST', { userId: created.data.user.id, evidenceReference: 'case-12345' })).status, 403)
+  assert.equal((await api('/api/admin/guardian-authorizations/verify', 'POST', { userId: created.data.user.id, evidenceReference: 'case-12345' })).status, 200)
+  assert.equal((await asGuardian('/api/account/guardian-authorization')).data.authorization.verifiedAt !== null, true)
+  assert.equal((await asGuardian('/api/commitments?domain=family')).data.commitments.some((item: { id: string }) => item.id === familyItem.data.commitment.id), true)
+  assert.equal((await asGuardian('/api/account/guardian-authorization', 'DELETE')).status, 200)
+  assert.equal((await asGuardian('/api/commitments?domain=family')).status, 403)
+})
 
 test('owner can edit and delete the duplicate while preserving the newer commitment and history after restart', async () => {
   const duplicate = (await api('/api/commitments', 'POST', { title: 'Grabar video de verificación para permiso faltante de Instagram en Facebook Developers', domain: 'agency', startsAt: '2026-09-25T04:00:00-05:00', dueAt: '2026-09-25T04:30:00-05:00' })).data.commitment

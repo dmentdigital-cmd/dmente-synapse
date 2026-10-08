@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Download, Fingerprint, Link2, LogOut, ShieldCheck, Smartphone, Trash2, UserPlus } from 'lucide-react'
+import { DataPrivacyPanel } from './DataPrivacyPanel'
 
 const domainOptions = [
   ['agency', 'Agencia'], ['personal', 'Personal'], ['family', 'Familia'], ['health', 'Salud'],
@@ -202,6 +203,7 @@ export function SettingsPanel({ onLogout, installed, canInstall, onInstall, role
       <p className="account-intro">Cada persona recibe un rol y acceso a dominios concretos. Los cambios se aplican en las solicitudes siguientes.</p>
       <form className="account-create" onSubmit={(event) => void createAccount(event)}>
         <strong><UserPlus size={15} /> Nueva cuenta</strong>
+        <p className="form-purpose">Nombre y usuario identifican a la persona; contraseña, rol y dominios controlan su acceso. La cuenta nueva deberá aceptar los términos y la política de privacidad antes de usar Synapse.</p>
         <div className="account-fields"><label>Nombre<input required maxLength={120} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label><label>Usuario<input required minLength={3} maxLength={64} pattern="[a-zA-Z0-9._-]+" value={draft.username} onChange={(event) => setDraft({ ...draft, username: event.target.value })} /></label><label>Contraseña<input required minLength={12} maxLength={256} type="password" autoComplete="new-password" value={draft.password} onChange={(event) => setDraft({ ...draft, password: event.target.value })} /><small>Mínimo 12 caracteres.</small></label><label>Rol<select value={draft.role} onChange={(event) => setDraft({ ...draft, role: event.target.value as Role })}>{Object.entries(roleLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></div>
         <div className="domain-access"><span>Dominios</span><div>{domainOptions.map(([value, label]) => <label key={value}><input type="checkbox" checked={draft.domains.includes(value)} onChange={() => toggleDraftDomain(value)} />{label}</label>)}</div></div>
         <button className="account-save" type="submit" disabled={busy || draft.domains.length === 0}>{busy ? 'Guardando…' : 'Crear cuenta'}</button>
@@ -210,9 +212,11 @@ export function SettingsPanel({ onLogout, installed, canInstall, onInstall, role
         <header><div><strong>{account.name}</strong><small>@{account.username}</small></div><label className="account-active"><input type="checkbox" checked={account.active} onChange={(event) => updateAccount(account.id, { active: event.target.checked })} /> Activa</label></header>
         <div className="account-fields"><label>Nombre<input value={account.name} maxLength={120} onChange={(event) => updateAccount(account.id, { name: event.target.value })} /></label><label>Rol<select value={account.role} onChange={(event) => updateAccount(account.id, { role: event.target.value as Role })}>{Object.entries(roleLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className="account-password">Nueva contraseña<input type="password" autoComplete="new-password" minLength={12} maxLength={256} placeholder="Sin cambios" value={account.password ?? ''} onChange={(event) => updateAccount(account.id, { password: event.target.value })} /></label></div>
         <div className="domain-access"><span>Dominios</span><div>{domainOptions.map(([value, label]) => <label key={value}><input type="checkbox" checked={account.domains.includes(value)} onChange={() => updateAccount(account.id, { domains: account.domains.includes(value) ? account.domains.filter((domain) => domain !== value) : [...account.domains, value] })} />{label}</label>)}</div></div>
+        <p className="form-purpose">Los cambios de esta cuenta se usan para identificar a la persona y controlar su acceso. Los dominios Familia, Salud y Educación requieren verificación parental para cuentas no administrativas.</p>
         <button className="account-save" disabled={busy || account.domains.length === 0 || Boolean(account.password && account.password.length < 12)} onClick={() => void saveAccount(account)}>Guardar cambios</button>
       </article>)}</div>
     </section>}
+    <DataPrivacyPanel admin={role === 'admin'} />
     <section className="deployment-version" aria-labelledby="deployment-version-title">
       <header><div><span className="eyebrow">CONTROL DE VERSIONES</span><h3 id="deployment-version-title">Versión online</h3></div><span className={deploymentVersion?.sourceCommit && deploymentVersion.sourceCommit !== 'unknown' ? 'settings-status online' : 'settings-status'}>{deploymentVersion?.sourceCommit && deploymentVersion.sourceCommit !== 'unknown' ? 'Identificada' : 'Sin identificar'}</span></header>
       {deploymentVersion?.sourceCommit && deploymentVersion.sourceCommit !== 'unknown' ? <dl><div><dt>Commit</dt><dd title={deploymentVersion.sourceCommit}>{deploymentVersion.sourceCommit}</dd></div><div><dt>Rama</dt><dd>{deploymentVersion.branch}</dd></div></dl> : <p>{versionError ? 'No se pudo consultar la versión del servidor.' : 'Coolify aún no está enviando el commit al contenedor.'}</p>}

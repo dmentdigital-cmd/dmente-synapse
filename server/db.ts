@@ -32,8 +32,29 @@ db.exec(`
     password_salt TEXT NOT NULL,
     totp_secret_enc TEXT,
     totp_pending_enc TEXT,
+    terms_accepted_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS data_deletion_requests (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'completed')),
+    created_at TEXT NOT NULL,
+    completed_at TEXT,
+    FOREIGN KEY (user_id) REFERENCES user_accounts(id)
+  );
+  CREATE INDEX IF NOT EXISTS data_deletion_requests_user ON data_deletion_requests(user_id, created_at DESC);
+  CREATE TABLE IF NOT EXISTS guardian_authorizations (
+    user_id TEXT PRIMARY KEY,
+    guardian_name TEXT NOT NULL,
+    relationship TEXT NOT NULL,
+    authorized_at TEXT NOT NULL,
+    verified_at TEXT,
+    verified_by TEXT,
+    evidence_reference TEXT,
+    revoked_at TEXT,
+    FOREIGN KEY (user_id) REFERENCES user_accounts(id)
   );
   CREATE TABLE IF NOT EXISTS webauthn_credentials (
     id TEXT PRIMARY KEY,
@@ -256,6 +277,7 @@ export function listLeads(limit: number, offset: number): { leads: Lead[]; total
 const accountColumns = new Set((db.prepare('PRAGMA table_info(user_accounts)').all() as { name: string }[]).map((column) => column.name))
 if (!accountColumns.has('totp_secret_enc')) db.exec('ALTER TABLE user_accounts ADD COLUMN totp_secret_enc TEXT')
 if (!accountColumns.has('totp_pending_enc')) db.exec('ALTER TABLE user_accounts ADD COLUMN totp_pending_enc TEXT')
+if (!accountColumns.has('terms_accepted_at')) db.exec('ALTER TABLE user_accounts ADD COLUMN terms_accepted_at TEXT')
 
 const messageColumns = new Set((db.prepare('PRAGMA table_info(messages)').all() as { name: string }[]).map((column) => column.name))
 if (!messageColumns.has('domain')) {
@@ -422,6 +444,60 @@ export function findUserById(id: string): UserAccount | null {
 export function listUserAccounts(): Omit<UserAccount, 'passwordHash' | 'passwordSalt' | 'totpSecretEncrypted' | 'totpPendingEncrypted'>[] {
   const rows = db.prepare('SELECT id, username, name, role, domains_json, active FROM user_accounts ORDER BY name COLLATE NOCASE').all() as Record<string, unknown>[]
   return rows.map((row) => ({ id: String(row.id), username: String(row.username), name: String(row.name), role: row.role as UserRole, domains: JSON.parse(String(row.domains_json)) as Domain[], active: Boolean(row.active) }))
+}
+
+export function requestAccountDataDeletion(userId: string): { id: string; status: string; createdAt: string } {
+  const existing = db.prepare("SELECT id, status, created_at FROM data_deletion_requests WHERE user_id = ? AND status = 'pending' ORDER BY created_at DESC LIMIT 1").get(userId) as { id: string; status: string; created_at: string } | undefined
+  if (existing) return { id: existing.id, status: existing.status, createdAt: existing.created_at }
+  const id = randomUUID()
+  const createdAt = new Date().toISOString()
+  db.prepare('INSERT INTO data_deletion_requests (id, user_id, created_at) VALUES (?, ?, ?)').run(id, userId, createdAt)
+  return { id, status: 'pending', createdAt }
+}
+
+export function getAccountDataDeletionRequest(userId: string): { id: string; status: string; createdAt: string } | null {
+  const row = db.prepare('SELECT id, status, created_at FROM data_deletion_requests WHERE user_id = ? ORDER BY created_at DESC LIMIT 1').get(userId) as { id: string; status: string; created_at: string } | undefined
+  return row ? { id: row.id, status: row.status, createdAt: row.created_at } : null
+}
+
+export function listPendingDataDeletionRequests(): { id: string; userId: string; username: string; name: string; createdAt: string }[] {
+  const rows = db.prepare("SELECT r.id, r.user_id, u.username, u.name, r.created_at FROM data_deletion_requests r JOIN user_accounts u ON u.id = r.user_id WHERE r.status = 'pending' ORDER BY r.created_at").all() as { id: string; user_id: string; username: string; name: string; created_at: string }[]
+  return rows.map((row) => ({ id: row.id, userId: row.user_id, username: row.username, name: row.name, createdAt: row.created_at }))
+}
+
+export function guardianAuthorization(userId: string): { guardianName: string; relationship: string; authorizedAt: string; verifiedAt: string | null; revokedAt: string | null } | null {
+  const row = db.prepare('SELECT guardian_name, relationship, authorized_at, verified_at, revoked_at FROM guardian_authorizations WHERE user_id = ?').get(userId) as { guardian_name: string; relationship: string; authorized_at: string; verified_at: string | null; revoked_at: string | null } | undefined
+  return row ? { guardianName: row.guardian_name, relationship: row.relationship, authorizedAt: row.authorized_at, verifiedAt: row.verified_at, revokedAt: row.revoked_at } : null
+}
+
+export function submitGuardianAuthorization(userId: string, guardianName: string, relationship: string): void {
+  const now = new Date().toISOString()
+  db.prepare('INSERT INTO guardian_authorizations (user_id, guardian_name, relationship, authorized_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET guardian_name = excluded.guardian_name, relationship = excluded.relationship, authorized_at = excluded.authorized_at, verified_at = NULL, verified_by = NULL, evidence_reference = NULL, revoked_at = NULL').run(userId, guardianName, relationship, now)
+}
+
+export function listPendingGuardianAuthorizations(): { userId: string; username: string; guardianName: string; relationship: string; authorizedAt: string }[] {
+  const rows = db.prepare('SELECT g.user_id, u.username, g.guardian_name, g.relationship, g.authorized_at FROM guardian_authorizations g JOIN user_accounts u ON u.id = g.user_id WHERE g.verified_at IS NULL AND g.revoked_at IS NULL ORDER BY g.authorized_at').all() as { user_id: string; username: string; guardian_name: string; relationship: string; authorized_at: string }[]
+  return rows.map((row) => ({ userId: row.user_id, username: row.username, guardianName: row.guardian_name, relationship: row.relationship, authorizedAt: row.authorized_at }))
+}
+
+export function verifyGuardianAuthorization(userId: string, reviewerId: string, evidenceReference: string): boolean {
+  if (userId === reviewerId) return false
+  return Number(db.prepare('UPDATE guardian_authorizations SET verified_at = ?, verified_by = ?, evidence_reference = ? WHERE user_id = ? AND verified_at IS NULL AND revoked_at IS NULL').run(new Date().toISOString(), reviewerId, evidenceReference, userId).changes) > 0
+}
+
+export function revokeGuardianAuthorization(userId: string): boolean {
+  return Number(db.prepare('UPDATE guardian_authorizations SET revoked_at = ?, verified_at = NULL WHERE user_id = ? AND revoked_at IS NULL').run(new Date().toISOString(), userId).changes) > 0
+}
+
+export function termsAcceptedAt(userId: string): string | null {
+  const row = db.prepare('SELECT terms_accepted_at FROM user_accounts WHERE id = ?').get(userId) as { terms_accepted_at: string | null } | undefined
+  return row?.terms_accepted_at ?? null
+}
+
+export function acceptCurrentTerms(userId: string): string {
+  const acceptedAt = new Date().toISOString()
+  db.prepare('UPDATE user_accounts SET terms_accepted_at = ?, updated_at = ? WHERE id = ?').run(acceptedAt, acceptedAt, userId)
+  return acceptedAt
 }
 
 export function createUserAccount(input: { id: string; username: string; name: string; role: UserRole; domains: Domain[]; passwordHash: string; passwordSalt: string }): boolean {

@@ -23,7 +23,24 @@ type ApiMessage = { id: string; direction: 'user' | 'agent'; text: string; creat
 export type ApiRequest = { id: string; agentId: AgentId; title: string; domain: string; projectId: string | null; priority: 'low' | 'normal' | 'high' | 'urgent'; status: 'pending' | 'in_progress' | 'waiting_approval' | 'blocked' | 'done' | 'cancelled'; riskLevel: 'low' | 'medium' | 'high'; requiresApproval: boolean; approvalConfirmed: boolean; startsAt: string | null; dueAt: string | null; nextAction: string; obsidianNote?: string | null; sourcePath: string | null; sourceDriveFolder: string | null }
 export type AgendaItem = ApiRequest & { id: string; kind: 'request' | 'commitment' | 'milestone'; requestId: string | null; commitmentId: string | null; createdAt: string; updatedAt: string; lastStatusComment?: { comment: string | null; createdAt: string } | null }
 type AuthRole = 'viewer' | 'operator' | 'approver' | 'admin'
-type AuthState = { configured: boolean; authenticated: boolean; mfaRequired?: boolean; mfaEnabled?: boolean; mfaManaged?: boolean; userId?: string; role?: AuthRole; domains?: string[] }
+type AuthState = { configured: boolean; authenticated: boolean; mfaRequired?: boolean; mfaEnabled?: boolean; mfaManaged?: boolean; termsAccepted?: boolean; userId?: string; role?: AuthRole; domains?: string[] }
+
+function TermsGate({ onAccepted, onLogout }: { onAccepted: () => void; onLogout: () => void }) {
+  const [accepted, setAccepted] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  async function submit() {
+    setBusy(true)
+    setError('')
+    try {
+      const response = await fetch('/api/account/terms-acceptance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accepted: true }) })
+      if (!response.ok) throw new Error('No se pudo registrar la aceptación.')
+      onAccepted()
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo registrar la aceptación.') }
+    finally { setBusy(false) }
+  }
+  return <main className="auth-screen"><section className="auth-card panel-card"><h1>Antes de continuar</h1><p>Revisa las condiciones de esta versión de pruebas y el tratamiento de datos de Synapse.</p><nav className="legal-links" aria-label="Documentos para revisar"><a href="/legal/terminos.html" target="_blank" rel="noreferrer">Términos de uso</a><a href="/legal/privacidad.html" target="_blank" rel="noreferrer">Privacidad</a><a href="/legal/cookies.html" target="_blank" rel="noreferrer">Cookies</a></nav><label className="terms-check"><input type="checkbox" checked={accepted} onChange={(event) => setAccepted(event.target.checked)} /> He leído y acepto los términos de uso y la política de privacidad.</label>{error && <p role="alert">{error}</p>}<button className="auth-submit" type="button" disabled={!accepted || busy} onClick={() => void submit()}>{busy ? 'Registrando…' : 'Continuar'}</button><button className="logout-button" type="button" onClick={onLogout}>Cerrar sesión</button></section></main>
+}
 
 function Root() {
   const [auth, setAuth] = useState<AuthState | null>(null)
@@ -37,7 +54,9 @@ function Root() {
     setAuth({ configured: true, authenticated: false })
   }
 
-  if (auth?.configured && !auth.authenticated) return <LoginScreen onAuthenticated={(userId, role, mfaEnabled, mfaManaged, domains) => setAuth({ configured: true, authenticated: true, userId, role, mfaEnabled, mfaManaged, domains })} />
+  if (auth === null) return <main className="auth-screen" role="status">Cargando Synapse…</main>
+  if (auth.configured && !auth.authenticated) return <LoginScreen onAuthenticated={() => { void fetch('/api/auth/session').then((response) => response.json() as Promise<AuthState>).then(setAuth).catch(() => setAuth({ configured: true, authenticated: false })) }} />
+  if (auth.authenticated && !auth.termsAccepted) return <TermsGate onAccepted={() => setAuth({ ...auth, termsAccepted: true })} onLogout={() => void logout()} />
   const mfaEnrollmentRequired = auth?.authenticated === true && auth.role === 'admin' && auth.mfaEnabled !== true
   return <App onLogout={logout} role={auth?.role} userId={auth?.userId} domains={auth?.domains} mfaEnabled={auth?.mfaEnabled} mfaManaged={auth?.mfaManaged} mfaEnrollmentRequired={mfaEnrollmentRequired} />
 }
@@ -216,12 +235,18 @@ function App({ onLogout, role, userId, domains, mfaEnabled, mfaManaged, mfaEnrol
         {section === 'agents' ? <AgentsPanel setActiveAgent={setActiveAgent} close={() => openSection('office')} /> : section === 'requests' ? <RequestsErrorBoundary onClose={() => openSection('office')}><RequestsPanel requests={requests} setActiveAgent={setActiveAgent} close={() => openSection('office')} /></RequestsErrorBoundary> : section === 'settings' ? <SettingsPanel onLogout={onLogout} installed={installed} canInstall={Boolean(installPrompt)} onInstall={() => void installApp()} role={mfaEnrollmentRequired ? undefined : role} userId={userId} mfaEnabled={mfaEnabled} mfaManaged={mfaManaged} /> : chatMinimized ? <ChatDock agent={agent} pending={pending[activeAgent]} restore={() => setChatMinimized(false)} /> : <ChatPanel agent={agent} messages={messages[activeAgent] as Message[]} pending={pending[activeAgent]} processing={processing[activeAgent]} apiReady={apiReady} draft={draft} setDraft={setDraft} sendMessage={sendMessage} minimize={() => setChatMinimized(true)} togglePending={() => setPending((current) => ({ ...current, [activeAgent]: !current[activeAgent] }))} />}
       </>}
     </main>
-    <footer className="app-footer"><img src="/assets/logo-dmente.png" alt="Dmente Digital" /><span>Desarrollado por Dmente Digital</span><a href="https://www.dmentedigital.co" target="_blank" rel="noreferrer">www.dmentedigital.co</a></footer>
+    <footer className="app-footer"><img src="/assets/logo-dmente.png" alt="" /><span>Dmente Digital · Titular indicada: Tania Alvarado garcia · Cartagena, Colombia · <a href="tel:+573218346407">+57 321 834 6407</a></span><nav className="legal-links" aria-label="Información legal"><a href="/legal/privacidad.html">Privacidad</a><a href="/legal/terminos.html">Términos</a><a href="/legal/cookies.html">Cookies</a><a href="mailto:info@dmentedigital.co">info@dmentedigital.co</a></nav></footer>
     {addAgentOpen && <AddAgentPanel close={() => setAddAgentOpen(false)} />}
   </div>
 }
 
-createRoot(document.getElementById('root')!).render(<StrictMode><Root /></StrictMode>)
+function CookieNotice() {
+  const [visible, setVisible] = useState(() => window.localStorage.getItem('synapse_cookie_notice_v1') !== 'seen')
+  if (!visible) return null
+  return <aside className="cookie-notice" aria-label="Aviso de cookies"><p>Synapse usa una cookie necesaria para la sesión y almacenamiento local para la aplicación instalable. No se activan cookies opcionales en esta versión. <a href="/legal/cookies.html">Ver política de cookies</a>.</p><button type="button" onClick={() => { window.localStorage.setItem('synapse_cookie_notice_v1', 'seen'); setVisible(false) }}>Entendido</button></aside>
+}
+
+createRoot(document.getElementById('root')!).render(<StrictMode><Root /><CookieNotice /></StrictMode>)
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => { void navigator.serviceWorker.register('/sw.js?v=4').catch(() => undefined) })

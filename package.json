@@ -28,7 +28,10 @@
     "@types/node": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
-    "concurrently": "latest",
+    "concurrently": "^9.2.4",
     "tsx": "latest"
+  },
+  "overrides": {
+    "shell-quote": "1.11.0"
   }
 }

@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, createHmac, createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { createUserAccount, findUserById, findUserByUsername, updateUserTotp } from './db.js'
+import { createUserAccount, findUserById, findUserByUsername, termsAcceptedAt, updateUserTotp } from './db.js'
 import type { Domain, UserRole } from './types.js'
 
 const username = process.env.SYNAPSE_OWNER_USERNAME ?? 'diego'
@@ -279,9 +279,9 @@ export function clearSessionCookie(res: ServerResponse): void {
   res.setHeader('Set-Cookie', `synapse_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure ? '; Secure' : ''}`)
 }
 
-export function authStatus(req: IncomingMessage): { configured: boolean; authenticated: boolean; mfaRequired: boolean; userId?: string; role?: UserRole; domains?: Domain[]; mfaEnabled?: boolean; mfaManaged?: boolean } {
+export function authStatus(req: IncomingMessage): { configured: boolean; authenticated: boolean; mfaRequired: boolean; userId?: string; role?: UserRole; domains?: Domain[]; mfaEnabled?: boolean; mfaManaged?: boolean; termsAccepted?: boolean } {
   const session = accessFromRequest(req)
-  return { configured: authConfigured(), authenticated: Boolean(session), mfaRequired: Boolean(ownerTotpSecret), ...(session ? { userId: session.userId, role: session.role, domains: session.domains, mfaEnabled: mfaEnabledForUser(session.userId), mfaManaged: mfaManagedForUser(session.userId) } : {}) }
+  return { configured: authConfigured(), authenticated: Boolean(session), mfaRequired: Boolean(ownerTotpSecret), ...(session ? { userId: session.userId, role: session.role, domains: session.domains, mfaEnabled: mfaEnabledForUser(session.userId), mfaManaged: mfaManagedForUser(session.userId), termsAccepted: Boolean(termsAcceptedAt(session.userId)) } : {}) }
 }
 
 export function totpEncryptionConfigured(): boolean { return Boolean(encryptionKey()) }

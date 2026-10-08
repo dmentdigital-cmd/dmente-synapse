@@ -351,6 +351,7 @@ export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete
         <label className="agenda-field agenda-field-wide">Siguiente acción<textarea maxLength={2000} rows={2} value={newItem.nextAction} onChange={(event) => setNewItem({ ...newItem, nextAction: event.target.value })} placeholder="Primer paso concreto (opcional)" /></label></>}
       </div>
       {editingItem?.kind !== 'commitment' && <label className="agenda-approval-toggle"><input type="checkbox" disabled={editingItem?.requiresApproval} checked={newItem.requiresApproval} onChange={(event) => setNewItem({ ...newItem, requiresApproval: event.target.checked })} /><span><strong>Requiere aprobación de Diego</strong><small>La tarea quedará en espera hasta aprobarla. Editar una tarea aprobada requiere revisarla de nuevo.</small></span></label>}
+      <p className="form-purpose">Título, fechas, dominio y contexto se guardan para coordinar la agenda y sus aprobaciones. Evita datos personales innecesarios. Consulta la <a href="/legal/privacidad.html" target="_blank" rel="noreferrer">política de privacidad</a>.</p>
       {error && <div className="agenda-error" role="alert"><AlertTriangle size={15} />{error}</div>}
       <footer><button type="button" className="agenda-cancel-create" disabled={createBusy} onClick={() => setCreateOpen(false)}>Cancelar</button><button type="submit" className="agenda-save-create" disabled={createBusy}><Save size={15} />{createBusy ? 'Guardando…' : editingItem ? 'Guardar cambios' : 'Guardar tarea'}</button></footer>
     </form></div>}

@@ -38,6 +38,7 @@ export function Modal({ title, eyebrow, busy, error, submitLabel, danger, narrow
     <form ref={form} tabIndex={-1} className={`agenda-create-form project-modal${narrow ? ' status-comment-modal' : ''}`} role={danger ? 'alertdialog' : 'dialog'} aria-modal="true" aria-labelledby="project-modal-title" onSubmit={submit}>
       <header><div>{eyebrow && <span className="eyebrow">{eyebrow}</span>}<h2 id="project-modal-title">{title}</h2></div><button type="button" className="icon-button" aria-label="Cerrar" disabled={busy} onClick={onClose}><X size={18} /></button></header>
       {children}
+      {!danger && <p className="form-purpose">Los datos de este formulario se guardan para gestionar proyectos, clientes, hitos o cobros internos según los campos visibles. Evita incluir datos personales innecesarios. Consulta la <a href="/legal/privacidad.html" target="_blank" rel="noreferrer">política de privacidad</a>.</p>}
       {error && <div className="agenda-error" role="alert"><AlertTriangle size={15} />{error}</div>}
       <footer><button type="button" data-cancel className="agenda-cancel-create" disabled={busy} onClick={onClose}>Cancelar</button><button type="submit" className={danger ? 'agenda-delete-task' : 'agenda-save-create'} disabled={busy}>{busy ? 'Guardando…' : submitLabel}</button></footer>
     </form>

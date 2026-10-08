@@ -113,6 +113,7 @@ export function ClientForm({ onClose, onSaved }: { onClose: () => void; onSaved:
     })
   }
   return <Modal title="Nuevo cliente" eyebrow="CLIENTES" busy={busy} error={error} submitLabel="Crear cliente" onClose={onClose} onSubmit={submit}>
+    <p className="form-purpose">El nombre identifica al cliente. Los datos opcionales de contacto, correo, teléfono y sector se guardan para gestionar la relación y el proyecto en Synapse.</p>
     <label className="agenda-field agenda-field-wide">Nombre o empresa<input name="name" data-autofocus required maxLength={200} /></label>
     <div className="agenda-form-grid project-form-grid">
       <label className="agenda-field">Contacto <span className="field-optional">Opcional</span><input name="contactName" maxLength={120} /></label>

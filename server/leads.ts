@@ -39,11 +39,13 @@ export function parseLead(input: Record<string, unknown>): LeadInput {
   if (typeof origin !== 'object' || Array.isArray(origin)) invalid('origin', 'Debe ser un objeto.')
   const source = origin as Record<string, unknown>
   for (const field of Object.keys(source)) if (!allowedOriginFields.has(field)) invalid(`origin.${field}`, 'Campo desconocido.')
-  const page = optionalText(source.page, 'origin.page', 2048)
+  let page = optionalText(source.page, 'origin.page', 2048)
   if (page) {
     try {
       const parsed = new URL(page)
       if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname) invalid('origin.page', 'Debe ser una URL HTTP o HTTPS.')
+      // Query parameters and fragments can carry identifiers or tokens that are not needed for attribution.
+      page = `${parsed.origin}${parsed.pathname}`
     } catch { invalid('origin.page', 'Debe ser una URL HTTP o HTTPS.') }
   }
 

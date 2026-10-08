@@ -20,7 +20,7 @@ async function start() {
   let output = ''
   child.stdout?.on('data', (chunk) => { output += String(chunk) })
   child.stderr?.on('data', (chunk) => { output += String(chunk) })
-  for (let count = 0; count < 80; count++) {
+  for (let count = 0; count < 400; count++) {
     if (child.exitCode !== null) throw new Error(output)
     try { if ((await fetch(`${base}/api/health`)).ok) return } catch { /* Wait for server startup. */ }
     await new Promise((resolve) => setTimeout(resolve, 100))
@@ -34,7 +34,10 @@ async function stop() {
 async function signIn(username: string) {
   const response = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base }, body: JSON.stringify({ username, [envKey('password')]: fixtureCredential }) })
   assert.equal(response.status, 200)
-  return response.headers.get('set-cookie')!.split(';')[0]
+  const session = response.headers.get('set-cookie')!.split(';')[0]
+  const acceptance = await fetch(`${base}/api/account/terms-acceptance`, { method: 'POST', headers: { Cookie: session, Origin: base, 'Content-Type': 'application/json' }, body: JSON.stringify({ accepted: true }) })
+  assert.equal(acceptance.status, 200)
+  return session
 }
 // The API allows 100 requests a minute per address; a restart clears that in-memory window.
 async function restart() { await stop(); await start(); cookie = await signIn(env.SYNAPSE_OWNER_USERNAME) }
@@ -53,7 +56,7 @@ async function database() {
   return new DatabaseSync(path.join(dataDir, 'synapse.sqlite'))
 }
 before(async () => { await start(); cookie = await signIn(env.SYNAPSE_OWNER_USERNAME) })
-after(async () => { await stop(); rmSync(dataDir, { recursive: true, force: true }) })
+after(async () => { await stop(); rmSync(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) })
 
 test('project ids already used by tasks appear as unclassified projects, once, and stay out of the traffic light', async () => {
   assert.equal((await api('/api/projects', 'GET', undefined, { cookie: null })).status, 401)
