@@ -9,7 +9,7 @@ export function DataPrivacyPanel({ admin = false }: { admin?: boolean }) {
   const [confirmation, setConfirmation] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [pending, setPending] = useState<{ id: string; username: string; name: string; createdAt: string }[]>([])
+  const [pending, setPending] = useState<{ id: string; userId: string; username: string; name: string; createdAt: string }[]>([])
   const [guardian, setGuardian] = useState<GuardianAuthorization | null>(null)
   const [guardianName, setGuardianName] = useState('')
   const [relationship, setRelationship] = useState('')
@@ -82,6 +82,18 @@ export function DataPrivacyPanel({ admin = false }: { admin?: boolean }) {
     finally { setBusy(false) }
   }
 
+  async function completeDeletion(item: { id: string; userId: string }) {
+    if (!window.confirm('Esta acción anonimiza la cuenta y elimina sus credenciales. ¿Continuar?')) return
+    setBusy(true); setError('')
+    try {
+      const response = await fetch('/api/admin/data-deletion-requests/complete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requestId: item.id, userId: item.userId }) })
+      const data = await response.json() as { error?: string }
+      if (!response.ok) throw new Error(data.error ?? 'No se pudo completar el borrado.')
+      setPending((current) => current.filter((request) => request.id !== item.id))
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo completar el borrado.') }
+    finally { setBusy(false) }
+  }
+
   return <section className="account-admin" aria-labelledby="data-privacy-title">
     <header><div><span className="eyebrow">DATOS PERSONALES</span><h3 id="data-privacy-title">Privacidad y borrado</h3></div></header>
     <p>Tu cuenta guarda nombre, usuario, credenciales de acceso y, si las configuraste, claves de autenticación. Las tareas, mensajes y registros de actividad pueden contener datos que ingresaste.</p>
@@ -91,7 +103,7 @@ export function DataPrivacyPanel({ admin = false }: { admin?: boolean }) {
       <button type="button" className="account-save" disabled={busy || confirmation !== 'SOLICITAR BORRADO'} onClick={() => void requestDeletion()}>{busy ? 'Enviando…' : 'Solicitar borrado de mis datos'}</button>
     </>}
     {error && <p role="alert">{error}</p>}
-    {admin && <div><h4>Solicitudes pendientes de cuentas</h4>{pending.length ? <ul>{pending.map((item) => <li key={item.id}>{item.name} (@{item.username}), {new Date(item.createdAt).toLocaleDateString('es-CO')}</li>)}</ul> : <p>No hay solicitudes pendientes.</p>}</div>}
+    {admin && <div><h4>Solicitudes pendientes de cuentas</h4>{pending.length ? <ul>{pending.map((item) => <li key={item.id}>{item.name} (@{item.username}), {new Date(item.createdAt).toLocaleDateString('es-CO')} <button type="button" className="account-save" disabled={busy} onClick={() => void completeDeletion(item)}>Completar borrado</button></li>)}</ul> : <p>No hay solicitudes pendientes.</p>}</div>}
     <div><h4>Datos de menores</h4><p>Si registras información de una persona menor de edad, identifica tu vínculo y autoriza expresamente su tratamiento para coordinar tareas de familia, salud o educación. Un administrador debe verificar tu representación antes de habilitar esos dominios en una cuenta de cliente. No ingreses aquí nombres ni documentos del menor.</p>
       {guardian && !guardian.revokedAt ? <><p role="status">Autorización de {guardian.guardianName} ({guardian.relationship}): {guardian.verifiedAt ? 'verificada' : 'pendiente de verificación'}.</p><button type="button" className="mfa-disable-button" disabled={busy} onClick={() => void revokeGuardian()}>Revocar autorización</button></> : <>
         <label className="mfa-field">Nombre del representante<input maxLength={120} value={guardianName} onChange={(event) => setGuardianName(event.target.value)} /></label>

@@ -465,6 +465,38 @@ export function listPendingDataDeletionRequests(): { id: string; userId: string;
   return rows.map((row) => ({ id: row.id, userId: row.user_id, username: row.username, name: row.name, createdAt: row.created_at }))
 }
 
+/**
+ * Completes a reviewed deletion request. Account identifiers and credentials
+ * are irreversibly pseudonymized while the request record is retained as a
+ * compliance record. Authentication credentials and parental authorization
+ * records are removed. Operational records without a subject owner remain
+ * available for integrity and audit purposes.
+ */
+export function completeAccountDataDeletion(requestId: string, userId: string): boolean {
+  const request = db.prepare("SELECT id, user_id, status FROM data_deletion_requests WHERE id = ? AND user_id = ?").get(requestId, userId) as { id: string; user_id: string; status: string } | undefined
+  if (!request || request.status !== 'pending') return false
+  const now = new Date().toISOString()
+  const replacementUsername = `deleted-${randomUUID()}`
+  const replacementSalt = randomUUID()
+  const replacementHash = createHash('sha256').update(`${randomUUID()}:${replacementSalt}`).digest('hex')
+  db.exec('BEGIN IMMEDIATE')
+  try {
+    db.prepare('DELETE FROM guardian_authorizations WHERE user_id = ?').run(userId)
+    db.prepare('DELETE FROM webauthn_credentials WHERE user_id = ?').run(userId)
+    db.prepare('DELETE FROM webauthn_challenges WHERE user_id = ?').run(userId)
+    db.prepare("UPDATE data_deletion_requests SET status = 'completed', completed_at = ? WHERE id = ? AND status = 'pending'").run(now, requestId)
+    const result = db.prepare(`UPDATE user_accounts SET username = ?, name = 'Cuenta eliminada', role = 'viewer', domains_json = '[]', active = 0,
+      password_hash = ?, password_salt = ?, totp_secret_enc = NULL, totp_pending_enc = NULL, terms_accepted_at = NULL, updated_at = ? WHERE id = ?`)
+      .run(replacementUsername, replacementHash, replacementSalt, now, userId)
+    if (Number(result.changes) !== 1) throw new Error('La cuenta no existe o no pudo anonimizarse.')
+    db.exec('COMMIT')
+    return true
+  } catch (error) {
+    db.exec('ROLLBACK')
+    throw error
+  }
+}
+
 export function guardianAuthorization(userId: string): { guardianName: string; relationship: string; authorizedAt: string; verifiedAt: string | null; revokedAt: string | null } | null {
   const row = db.prepare('SELECT guardian_name, relationship, authorized_at, verified_at, revoked_at FROM guardian_authorizations WHERE user_id = ?').get(userId) as { guardian_name: string; relationship: string; authorized_at: string; verified_at: string | null; revoked_at: string | null } | undefined
   return row ? { guardianName: row.guardian_name, relationship: row.relationship, authorizedAt: row.authorized_at, verifiedAt: row.verified_at, revokedAt: row.revoked_at } : null

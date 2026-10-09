@@ -4,7 +4,7 @@ import { readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { URL } from 'node:url'
 import { accessFromRequest, authConfigured, authStatus, beginTotpSetup, clearSession, clearSessionCookie, confirmTotpSetup, disableTotp, hashPassword, login, loginBlocked, mfaEnabledForUser, mfaManagedForUser, recordAuthFailure, revokeUserSessions, sessionFromRequest, setSessionCookie, totpEncryptionConfigured, validateProductionSecurityConfiguration, verifyAccountPasswordAndMfa } from './auth.js'
-import { acceptCurrentTerms, addAudit, addMessage, closeDatabase, confirmRequestApproval, createCommitment, createRequest, createUserAccount, findUserById, findUserByUsername, getAccountDataDeletionRequest, getLatestAgendaStatusComment, getLocalProfile, getRequest, guardianAuthorization, ingestLead, listAgents, listCommitments, listLeads, listMessages, listPendingDataDeletionRequests, listPendingGuardianAuthorizations, listPermissions, listRequests, listUserAccounts, recordAgendaStatusChange, requestAccountDataDeletion, revokeGuardianAuthorization, submitGuardianAuthorization, termsAcceptedAt, updateCommitmentStatus, updateRequestSources, updateRequestStatus, updateUserAccount, verifyGuardianAuthorization } from './db.js'
+import { acceptCurrentTerms, addAudit, addMessage, closeDatabase, completeAccountDataDeletion, confirmRequestApproval, createCommitment, createRequest, createUserAccount, findUserById, findUserByUsername, getAccountDataDeletionRequest, getLatestAgendaStatusComment, getLocalProfile, getRequest, guardianAuthorization, ingestLead, listAgents, listCommitments, listLeads, listMessages, listPendingDataDeletionRequests, listPendingGuardianAuthorizations, listPermissions, listRequests, listUserAccounts, recordAgendaStatusChange, requestAccountDataDeletion, revokeGuardianAuthorization, submitGuardianAuthorization, termsAcceptedAt, updateCommitmentStatus, updateRequestSources, updateRequestStatus, updateUserAccount, verifyGuardianAuthorization } from './db.js'
 import { buildReply, routeRequest } from './orchestrator.js'
 import { authorizedWriteForDomain, handleMcp } from './mcp.js'
 import { getHermesStatus, isHermesConfigured, requestHermesReply } from './hermes.js'
@@ -172,6 +172,18 @@ const server = createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/admin/data-deletion-requests') {
       const session = requireSession(req, res, ['admin']); if (!session) return
       return send(res, 200, { requests: listPendingDataDeletionRequests() })
+    }
+    if (req.method === 'POST' && url.pathname === '/api/admin/data-deletion-requests/complete') {
+      const session = requireSession(req, res, ['admin']); if (!session) return
+      const input = await readJsonBody(req)
+      const requestId = text(input.requestId)
+      const userId = text(input.userId)
+      if (!requestId || !userId) return send(res, 400, { error: 'Indica requestId y userId.' })
+      const completed = completeAccountDataDeletion(requestId, userId)
+      if (!completed) return send(res, 409, { error: 'La solicitud no existe, ya fue completada o no coincide con la cuenta.' })
+      revokeUserSessions(userId)
+      addAudit({ action: 'account_data_deletion_completed', summary: 'Solicitud de borrado completada y cuenta anonimizada', source: 'admin', actorId: session.userId })
+      return send(res, 200, { completed: true, requestId })
     }
     if (req.method === 'POST' && url.pathname === '/api/account/data-deletion-request') {
       const session = requireSession(req, res, validRoles, true); if (!session) return
