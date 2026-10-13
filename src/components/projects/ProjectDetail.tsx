@@ -38,6 +38,7 @@ export function ProjectDetail({ detail, role, clients, onChanged, onDeleted }: P
   const [tab, setTab] = useState<Tab>(state && !milestones.length ? 'state' : 'schedule')
   const [dialog, setDialog] = useState<Dialog | null>(null)
   const [draft, setDraft] = useState<{ kind: UpdateKind; text: string }>({ kind: 'avance', text: '' })
+  const [checkin, setCheckin] = useState({ progress: '', blocker: '', nextAction: project.nextAction ?? '' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const writer = canWrite(role)
@@ -64,6 +65,13 @@ export function ProjectDetail({ detail, role, clients, onChanged, onDeleted }: P
     await quick(async () => { await call(`${route}/updates`, 'POST', { kind: draft.kind, text }); setDraft({ kind: 'avance', text: '' }) })
   }
 
+  async function saveCheckin() {
+    await quick(async () => {
+      await call(`${route}/checkins`, 'POST', checkin)
+      setCheckin({ progress: '', blocker: '', nextAction: checkin.nextAction })
+    })
+  }
+
   const tabs: { id: Tab; label: string; icon: ReactNode }[] = [
     ...(state ? [{ id: 'state' as Tab, label: 'Estado', icon: <FileText size={14} /> }] : []),
     { id: 'schedule', label: `Cronograma${milestones.length ? ` · ${milestones.length}` : ''}`, icon: <Flag size={14} /> },
@@ -87,6 +95,14 @@ export function ProjectDetail({ detail, role, clients, onChanged, onDeleted }: P
     <ProgressBar progress={project.progress} done={project.milestoneCounts.done} total={project.milestoneCounts.total} />
     {project.nextAction && <p className="project-next-action"><b>Siguiente acción:</b> {project.nextAction}</p>}
     {error && <div className="agenda-error" role="alert"><AlertTriangle size={15} />{error}</div>}
+
+    {admin && project.status === 'en_curso' && <form className="project-checkin" onSubmit={(event) => { event.preventDefault(); void saveCheckin() }}>
+      <div><span className="eyebrow">SEGUIMIENTO DIARIO</span><h3>Actualiza este proyecto</h3><p>¿Qué avanzó, qué te bloquea y cuál es la siguiente acción?</p></div>
+      <label className="agenda-field">Avance de hoy<textarea rows={2} maxLength={2000} required value={checkin.progress} onChange={(event) => setCheckin({ ...checkin, progress: event.target.value })} /></label>
+      <label className="agenda-field">Bloqueo nuevo, si existe<textarea rows={2} maxLength={2000} value={checkin.blocker} onChange={(event) => setCheckin({ ...checkin, blocker: event.target.value })} /></label>
+      <label className="agenda-field">Próxima acción<textarea rows={2} maxLength={2000} required value={checkin.nextAction} onChange={(event) => setCheckin({ ...checkin, nextAction: event.target.value })} /></label>
+      <button type="submit" className="agenda-new-task" disabled={busy || !checkin.progress.trim() || !checkin.nextAction.trim()}>Guardar seguimiento</button>
+    </form>}
 
     <div className="agenda-view-tabs project-tabs" role="tablist" aria-label="Secciones del proyecto">{tabs.map((item) => <button key={item.id} type="button" role="tab" aria-selected={tab === item.id} className={tab === item.id ? 'active' : ''} onClick={() => setTab(item.id)}>{item.icon}{item.label}</button>)}</div>
 

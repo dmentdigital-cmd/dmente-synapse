@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { readJsonBody } from './security.js'
-import { addProjectUpdate, createClient, createMilestone, createProject, deleteMilestone, deleteProject, deleteProjectMetric, getProjectDetail, projectReport, saveProjectInvoice, setProjectFinance, setProjectMetric, listClients, listProjects, projectsDigest, resolveBlocker, updateClient, updateMilestone, updateProject, type ProjectActor } from './projects.js'
+import { latestDailyProjectReport } from './daily-project-report.js'
+import { addProjectUpdate, createClient, createMilestone, createProject, deleteMilestone, deleteProject, deleteProjectMetric, getProjectDetail, projectReport, recordProjectCheckin, saveProjectInvoice, setProjectFinance, setProjectMetric, listClients, listProjects, projectsDigest, resolveBlocker, updateClient, updateMilestone, updateProject, type ProjectActor } from './projects.js'
 import type { Domain, UserRole } from './types.js'
 
 type Session = { userId: string; role: UserRole; domains: Domain[] }
@@ -20,7 +21,7 @@ export async function handleProjectRoutes(req: IncomingMessage, res: ServerRespo
   try { segments = url.pathname.split('/').filter(Boolean).slice(1).map((segment) => decodeURIComponent(segment)) }
   catch { return false }
   const [root, id, child, childId, action] = segments
-  if (root !== 'projects' && root !== 'clients' && root !== 'project-digest') return false
+  if (root !== 'projects' && root !== 'clients' && root !== 'project-digest' && root !== 'project-daily-report') return false
   const begin = (roles?: UserRole[]): ProjectActor | null => {
     const session = requireSession(req, res, roles)
     return session ? { source: 'manual', actorId: session.userId, allowDomain: (domain) => inDomain(session, domain) } : null
@@ -29,6 +30,10 @@ export async function handleProjectRoutes(req: IncomingMessage, res: ServerRespo
   if (root === 'project-digest' && segments.length === 1 && method === 'GET') {
     const actor = begin(); if (!actor) return true
     send(res, 200, projectsDigest(actor)); return true
+  }
+  if (root === 'project-daily-report' && segments.length === 1 && method === 'GET') {
+    const actor = begin(['admin']); if (!actor) return true
+    send(res, 200, { report: latestDailyProjectReport() }); return true
   }
   if (root === 'clients') {
     if (segments.length === 1 && method === 'GET') { const actor = begin(); if (!actor) return true; send(res, 200, { clients: listClients(actor) }); return true }
@@ -54,6 +59,7 @@ export async function handleProjectRoutes(req: IncomingMessage, res: ServerRespo
     return false
   }
   if (child === 'report' && segments.length === 3 && method === 'GET') { const actor = begin(); if (!actor) return true; send(res, 200, projectReport(id, actor, { from: url.searchParams.get('from'), to: url.searchParams.get('to') })); return true }
+  if (child === 'checkins' && segments.length === 3 && method === 'POST') { const actor = begin(['admin']); if (!actor) return true; send(res, 201, { checkin: recordProjectCheckin(id, await readJsonBody(req), actor) }); return true }
   if (child === 'metrics') {
     if (segments.length === 3 && method === 'POST') { const actor = begin(WRITERS); if (!actor) return true; send(res, 200, { metric: setProjectMetric(id, await readJsonBody(req), actor) }); return true }
     if (segments.length === 4 && method === 'DELETE') { const actor = begin(['admin']); if (!actor) return true; send(res, 200, deleteProjectMetric(id, childId, actor)); return true }

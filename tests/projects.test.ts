@@ -385,3 +385,28 @@ test('a status file loads the project: creates or confirms it, follows its block
   assert.equal((db.prepare("SELECT COUNT(*) AS total FROM audit_events WHERE action = 'project_state_imported'").get() as any).total, 3)
   db.close()
 })
+
+test('daily check-in records progress and blocker, while the digest highlights missing actions and blocked tasks', async () => {
+  const created = await api('/api/projects', 'POST', { id: 'daily-checkin-fixture', name: 'Seguimiento diario', domain: 'agency', status: 'en_curso' })
+  assert.equal(created.status, 201)
+  const route = '/api/projects/daily-checkin-fixture'
+  const first = (await api('/api/project-digest')).data.exceptions
+  assert.ok(first.some((entry: any) => entry.projectId === 'daily-checkin-fixture' && entry.type === 'missing_project_action'))
+  const taskResponse = await api('/api/operational-agenda/items', 'POST', { title: 'Resolver acceso', domain: 'projects', agentId: 'pmo', projectId: 'daily-checkin-fixture' })
+  assert.equal(taskResponse.status, 201)
+  const task = taskResponse.data.item
+  const before = (await api('/api/project-digest')).data.exceptions
+  assert.ok(before.some((entry: any) => entry.taskId === task.id && entry.type === 'missing_task_action'))
+  assert.equal((await api(`${route}/checkins`, 'POST', { progress: 'Hoy revisé los accesos', nextAction: '' })).status, 400)
+  assert.equal((await api(`${route}/checkins`, 'POST', { progress: 'Hoy revisé los accesos', nextAction: 'Solicitar acceso', extra: true })).status, 400)
+  const saved = await api(`${route}/checkins`, 'POST', { progress: 'Hoy revisé los accesos', blocker: 'Falta acceso del cliente', nextAction: 'Solicitar acceso' })
+  assert.equal(saved.status, 201)
+  const detail = (await api(route)).data
+  assert.equal(detail.project.nextAction, 'Solicitar acceso')
+  assert.ok(detail.updates.some((entry: any) => entry.kind === 'avance' && entry.text === 'Hoy revisé los accesos'))
+  assert.ok(detail.updates.some((entry: any) => entry.kind === 'bloqueo' && entry.text === 'Falta acceso del cliente'))
+  const afterCheckin = (await api('/api/project-digest')).data.exceptions
+  assert.ok(afterCheckin.some((entry: any) => entry.projectId === 'daily-checkin-fixture' && entry.type === 'blocked_project'))
+  assert.ok(!afterCheckin.some((entry: any) => entry.projectId === 'daily-checkin-fixture' && entry.type === 'missing_project_action'))
+  assert.equal((await api(`${route}/checkins`, 'POST', { progress: 'x', nextAction: 'y' }, { cookie: null })).status, 401)
+})

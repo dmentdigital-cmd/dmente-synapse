@@ -15,6 +15,7 @@ import type { Domain, UserRole } from './types.js'
 import { editAgendaRecord, removeAgendaRecord } from './agenda-mutations.js'
 import { agendaMilestoneItems } from './projects.js'
 import { handleProjectRoutes } from './project-routes.js'
+import { startDailyProjectReportScheduler } from './daily-project-report.js'
 import { inferQuadrant } from './eisenhower.js'
 
 const port = Number(process.env.PORT ?? 3010)
@@ -133,7 +134,7 @@ const server = createServer(async (req, res) => {
     }
     if (url.pathname.startsWith('/api/') && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method ?? '') && !sameOriginMutation(req)) return send(res, 403, { error: 'Origen de solicitud no permitido.' })
     if (url.pathname === '/mcp') return handleMcp(req, res)
-    if (/^\/api\/(projects|clients|project-digest)(\/|$)/.test(url.pathname) && await handleProjectRoutes(req, res, url, { send, requireSession, inDomain })) return
+    if (/^\/api\/(projects|clients|project-digest|project-daily-report)(\/|$)/.test(url.pathname) && await handleProjectRoutes(req, res, url, { send, requireSession, inDomain })) return
     if (req.method === 'GET' && url.pathname === '/api/leads') {
       const session = requireSession(req, res); if (!session) return
       if (!inDomain(session, 'sales')) return send(res, 403, { error: 'No tienes acceso a los leads de ventas.' })
@@ -582,5 +583,6 @@ const server = createServer(async (req, res) => {
 
 validateProductionSecurityConfiguration()
 server.listen(port, host, () => console.log(`Dmente Synapse API: http://${host}:${port}`))
+startDailyProjectReportScheduler()
 process.on('SIGINT', () => { closeDatabase(); server.close(() => process.exit(0)) })
 process.on('SIGTERM', () => { closeDatabase(); server.close(() => process.exit(0)) })

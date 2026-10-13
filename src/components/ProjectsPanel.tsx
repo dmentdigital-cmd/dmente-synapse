@@ -5,6 +5,9 @@ import { ClientForm, ProjectForm } from './projects/ProjectForms'
 import { call, canWrite, dayLabel, domainLabels, healthLabels, plural, projectStatusLabels, type Client, type ProjectDetailData, type ProjectStatus, type ProjectSummary, type Role } from './projects/model'
 
 type Filter = 'active' | 'all' | ProjectStatus
+type ProjectException = { projectId: string; projectName: string; type: 'blocked_project' | 'blocked_task' | 'missing_project_action' | 'missing_task_action'; title: string; owner: string | null; taskId: string | null }
+type Digest = { generatedAt: string; exceptions: ProjectException[] }
+type DailyReport = { date: string; generatedAt: string; body: string; exceptionCount: number; emailSentAt: string | null; emailError: string | null }
 const ACTIVE: ProjectStatus[] = ['propuesta', 'en_curso', 'pausado']
 
 function idFromHash(): string | null {
@@ -16,6 +19,8 @@ function idFromHash(): string | null {
 export function ProjectsPanel({ role, onClose }: { role?: Role; onClose: () => void }) {
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [clients, setClients] = useState<Client[] | null>(null)
+  const [digest, setDigest] = useState<Digest | null>(null)
+  const [dailyReport, setDailyReport] = useState<DailyReport | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(idFromHash)
   const [detail, setDetail] = useState<ProjectDetailData | null>(null)
   const [filter, setFilter] = useState<Filter>('active')
@@ -38,8 +43,10 @@ export function ProjectsPanel({ role, onClose }: { role?: Role; onClose: () => v
       .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     // Clients are optional: without agency or sales access the list stays hidden and projects still work.
     call<{ clients: Client[] }>('/api/clients', 'GET', undefined, controller.signal).then((data) => setClients(data.clients)).catch(() => { if (!controller.signal.aborted) setClients(null) })
+    call<Digest>('/api/project-digest', 'GET', undefined, controller.signal).then(setDigest).catch(() => { if (!controller.signal.aborted) setDigest(null) })
+    if (role === 'admin') call<{ report: DailyReport | null }>('/api/project-daily-report', 'GET', undefined, controller.signal).then((data) => setDailyReport(data.report)).catch(() => { if (!controller.signal.aborted) setDailyReport(null) })
     return () => controller.abort()
-  }, [reloadKey])
+  }, [reloadKey, role])
 
   const unclassified = useMemo(() => projects.filter((project) => project.status === 'por_clasificar' && (domain === 'all' || project.domain === domain)), [projects, domain])
   const visible = useMemo(() => projects.filter((project) => (domain === 'all' || project.domain === domain) && (filter === 'all' ? project.status !== 'por_clasificar' : filter === 'active' ? ACTIVE.includes(project.status) : project.status === filter)), [projects, filter, domain])
@@ -76,6 +83,8 @@ export function ProjectsPanel({ role, onClose }: { role?: Role; onClose: () => v
   const count = (health: string) => tracked.filter((project) => project.health === health).length
   const domains = [...new Set(projects.map((project) => project.domain))].sort()
   const shown = detail && detail.project.id === activeId ? detail : null
+  const exceptionLabels: Record<ProjectException['type'], string> = { blocked_project: 'Proyecto bloqueado', blocked_task: 'Tarea bloqueada', missing_project_action: 'Proyecto sin próxima acción', missing_task_action: 'Tarea sin próxima acción' }
+  const exceptions = digest?.exceptions ?? []
 
   function row(project: ProjectSummary) {
     const selected = project.id === activeId
@@ -106,6 +115,11 @@ export function ProjectsPanel({ role, onClose }: { role?: Role; onClose: () => v
         <select aria-label="Filtrar por dominio" value={domain} onChange={(event) => { setDomain(event.target.value); setSelectedId(null) }}><option value="all">Todos los dominios</option>{domains.map((item) => <option key={item} value={item}>{domainLabels[item] ?? item}</option>)}</select>
       </div>
     </div>
+    <section className="project-exceptions" aria-labelledby="project-exceptions-title">
+      <div className="project-exceptions-heading"><div><span className="eyebrow">CONTROL POR EXCEPCIÓN</span><h2 id="project-exceptions-title">Lo que necesita una decisión</h2><p>Bloqueos y próximas acciones pendientes en proyectos activos. El resumen se calcula con los registros de Synapse.</p></div><strong>{plural(exceptions.length, 'excepción', 'excepciones')}</strong></div>
+      {digest ? exceptions.length ? <ul className="project-exceptions-list">{exceptions.map((item, index) => <li key={`${item.type}-${item.projectId}-${item.taskId ?? index}`}><button type="button" onClick={() => { setFilter('all'); setDomain('all'); select(item.projectId) }}><span>{exceptionLabels[item.type]}</span><strong>{item.projectName}</strong><small>{item.title}{item.owner ? ` · Responsable: ${item.owner}` : ''}</small></button></li>)}</ul> : <p className="project-exceptions-empty">No hay bloqueos ni próximas acciones pendientes en los proyectos activos visibles.</p> : <p className="project-exceptions-empty">No se pudo cargar el informe de excepciones. Usa Actualizar para volver a intentarlo.</p>}
+    </section>
+    {role === 'admin' && <section className="project-daily-report" aria-labelledby="daily-report-title"><div><span className="eyebrow">CORTE DIARIO · 9:15 A. M. BOGOTÁ</span><h2 id="daily-report-title">Informe para Diego</h2></div>{dailyReport ? <><p>Fecha: {dailyReport.date} · {plural(dailyReport.exceptionCount, 'excepción', 'excepciones')} · Correo: {dailyReport.emailSentAt ? 'enviado' : dailyReport.emailError ? 'falló el envío' : 'pendiente de configuración o envío'}</p><pre>{dailyReport.body}</pre></> : <p>El primer informe se guardará después de las 9:15 a. m. de Bogotá.</p>}</section>}
     {error && <div className="leads-error" role="alert">{error}</div>}
     {loading && projects.length === 0 ? <div className="leads-empty" role="status">Cargando proyectos...</div> : <div className="leads-layout projects-layout">
       <div className="leads-list" aria-label="Lista de proyectos">

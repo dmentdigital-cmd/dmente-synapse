@@ -595,6 +595,7 @@ export function createCommitment(input: { title: string; domain: Domain; people?
   }
   db.prepare('INSERT INTO commitments (id, title, domain, people_json, source, starts_at, due_at, status, created_at, updated_at, external_id, project_id, quadrant, urgency, importance, urgency_reason, importance_reason, source_topic) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)')
     .run(commitment.id, commitment.title, commitment.domain, JSON.stringify(commitment.people), commitment.source, commitment.startsAt, commitment.dueAt, commitment.status, commitment.createdAt, commitment.updatedAt, commitment.projectId ?? null, null, null, null, null, null, null)
+  commitment.eisenhower.quadrant = inferQuadrant(commitment)
   return commitment
 }
 

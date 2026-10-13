@@ -1,10 +1,30 @@
 # Estado del Proyecto : DMENTE SYNAPSE
 
-**Última actualización:** 2026-10-09 (America/Bogota)
+**Última actualización:** 2026-10-13 (America/Bogota)
 **Responsable:** Diego (dmentdigital@gmail.com)
 **Estado general:** Los controles de cumplimiento y el borrado administrativo de cuentas están publicados en `main` en el commit `89a894d`. El healthcheck y las páginas legales responden HTTP 200. La validación autenticada de producción, la infraestructura externa, el aislamiento multi cliente y la revisión jurídica siguen pendientes de verificación.
 
 Dmente Synapse es la oficina operativa de agentes de Dmente Digital: coordina proyectos, solicitudes, agentes, prioridades, riesgos y aprobaciones. El historial del proyecto identifica `https://synapse.dmentedigital.co` como dominio de producción y menciona Coolify y una VPS Hostinger; proveedor y configuración actual pendientes de reconfirmación.
+
+---
+
+## Actualización del 13 de octubre de 2026: Matriz de Eisenhower
+
+Implementación publicada en `main` y `origin/main` en el commit `9b42a42`; no se ha desplegado a producción:
+
+- La Agenda Operativa incorpora la vista **Eisenhower** con cuadrícula Q1, Q2, Q3 y Q4.
+- Solicitudes y compromisos guardan `quadrant`, `urgency`, `importance`, razones y `sourceTopic`.
+- La clasificación automática usa prioridad, vencimiento, riesgo, aprobación, proyecto y dominio.
+- El cuadrante se puede sobrescribir manualmente desde Editar y Lucía puede actualizarlo mediante MCP.
+- En Q4, la tarjeta ofrece **Archivar** con confirmación; archivar cambia el estado a `cancelled` y conserva el historial, sin borrar datos.
+- La API acepta `GET /api/operational-agenda?view=eisenhower` y devuelve elementos agrupados mediante `counts`.
+- Se añadieron filtros por hilo de origen junto con los filtros existentes de dominio, proyecto, agente, prioridad y estado.
+- No se añadieron acciones externas ni se eliminaron datos.
+- Pruebas nuevas: inferencia determinística y actualización manual con conteos Q1-Q4.
+
+**Verificación:** `npm run build`, `npm run server:check`, `git diff --check` y la prueba aislada de Eisenhower pasaron. `npm test` ejecutó 43 pruebas; 17 pasaron y 26 agotaron el timeout de arranque de los servidores de prueba en los puertos 3055, 3056 y 3057. El commit está publicado; el despliegue de producción sigue sin ejecutarse por la restricción del prompt.
+
+**Pendiente para cerrar esta entrega:** revisión funcional visual en navegador, resolver o documentar definitivamente los timeouts de arranque, y recibir aprobación explícita para desplegar producción.
 
 ---
 
@@ -222,6 +242,10 @@ Esta sección recoge las comprobaciones de la sesión actual y actualiza los ant
   Estado actual: Hermes responde mediante la identidad general LuciaBot; no se verificó que los especialistas tengan runtimes separados. El indicador “LuciaBot está trabajando” identifica al orquestador visible, no demuestra por sí solo qué especialista ejecuta el trabajo.
   Comportamiento deseado por Diego: al iniciar desde Marketing, Lucia debe revisar la solicitud, usar JEV como mecanismo de evaluación/delegación indicado por Diego, asignarla al especialista correspondiente y presentar la respuesta de ese especialista en el mismo chat. Si la tarea no corresponde a Marketing, Lucia debe redirigirla al área adecuada. El contrato exacto de JEV y la ejecución autónoma de especialistas quedan por confirmar e implementar.
 
+- ✅ Sincronización de estados a Drive - Completado 2026-10-09
+  Qué: 7 archivos subidos a la carpeta de estados (4 reemplazados: DMENTE DIGITAL, RICARDO ABELLA, DRA VIANETH, VOCERO VIBE COMUNITTY; 3 nuevos: DIANA PEDREROS, TECNOLOGIA E IA EN CARTAGENA, WEB LUCIA). Las versiones viejas quedaron en la papelera. VERTICE, SYNAPSE, SMARTDOGS e INSTAGRAM EN TU SAAS ya estaban al día. CURSO DE JEV y LANDING DMENTE DIGITAL quedan pendientes hasta que Diego confirme el nombre.
+  Estado: Listo
+
 - Estado de Dmente Synapse sincronizado a Drive - 2026-09-28
   Qué: contenido completo actualizado en el archivo canónico `ESTADO PROYECTO DMENTE SYNAPSE.md`, conservando su ID y enlace.
   Estado: archivo canónico actualizado y verificado en `ESTADOS DE PROYECTOS`; la conexión de Hermes a la carpeta no se ha comprobado.
@@ -265,6 +289,8 @@ Esta sección recoge las comprobaciones de la sesión actual y actualiza los ant
 
 ## Próximos pasos
 
+Sincronización a Drive 2026-10-09: 1 archivo subido (ESTADO PROYECTO MARIA CLAUDIA BURGOS.md) a la carpeta fija de Hermes; los demás proyectos no se tocaron en esta corrida.
+
 Prioridad nueva: preparar la integración de leads según la sección del 3 de octubre; mantener el despliegue pendiente de autorización.
 1. Verificar con un cronjob de prueba que Hermes/VPS llama `synapse_create_commitment` con `externalId` estable y que el evento aparece en Agenda sin duplicarse al repetirlo.
 2. Revisar el contrato de JEV y diseñar/probar el ciclo Lucia → especialista → respuesta en chat.
@@ -291,5 +317,15 @@ agentes:
 - tecnico: web, automatizaciones, tracking, integraciones
 
 bloqueoPrincipal: Para uso con clientes faltan verificación de proveedores y región, supresión y respaldos, aislamiento entre clientes, prueba operativa de representación parental, validación WCAG completa y revisión jurídica. En producción se confirmó el commit y las páginas públicas, pero faltan pruebas autenticadas de los flujos nuevos, proyectos, MCP, Hermes, MFA/RBAC y restauración.
-proximaAccion: Probar los flujos nuevos con sesión autorizada; verificar proveedor y cadena de Hermes, acordar y probar supresión y restauración, medir accesibilidad y revisar textos legales antes de abrir el acceso a clientes.
+proximaAccion: Validar en producción el seguimiento diario y el informe de excepciones; configurar SMTP y el token API de Coolify con permiso deploy; probar los flujos nuevos con sesión autorizada antes de abrir el acceso a clientes.
 requiereAprobacion: no
+
+## Seguimiento diario por excepción, 13 de octubre de 2026
+
+- Se revisó `resumen_completo_del_video_como_saber_que_tareas_automatizar.md` como referencia conceptual. Synapse ya tenía clientes, proyectos, tareas, responsables, hitos, bloqueos, próxima acción y `GET /api/project-digest`, también disponible para Hermes por MCP.
+- Se añadió al resumen de proyectos la lista de excepciones de proyectos activos: proyectos con bloqueos abiertos o hitos bloqueados, tareas bloqueadas y proyectos o tareas sin próxima acción concreta. El cálculo se filtra por dominios autorizados.
+- La vista Proyectos muestra esas excepciones y permite abrir el proyecto correspondiente. El administrador puede registrar el seguimiento diario de un proyecto en curso: avance, bloqueo nuevo opcional y próxima acción. La operación usa `POST /api/projects/:id/checkins` y guarda los cambios de forma transaccional.
+- Se añadió un informe diario persistente para Diego Sanabria. El servidor lo genera después de las 9:15 a. m. de Bogotá, lo muestra en Synapse al administrador y prepara el envío a `diego@dmentedigital.co` mediante SMTP. Se configura con `SYNAPSE_SMTP_HOST`, `SYNAPSE_SMTP_PORT`, `SYNAPSE_SMTP_USER`, `SYNAPSE_SMTP_PASSWORD`, `SYNAPSE_SMTP_FROM` y opcionalmente `SYNAPSE_DAILY_REPORT_TO`. El correo no puede enviarse hasta configurar esos valores en Coolify.
+- El usuario confirmó que solo Diego recibirá el seguimiento y que el informe irá dentro de Synapse y por correo corporativo. No se ha verificado el host, puerto, usuario ni remitente SMTP. No hay credenciales en el repositorio.
+- Para el despliegue mediante API de Coolify se añadió `scripts/coolify-deploy.mjs`: comprueba por lectura el UUID y la identidad de Dmente Synapse antes de solicitar el despliegue con `--deploy`. El usuario indicó que todavía no tiene la URL del panel. Siguen pendientes esa URL y un token con permiso `deploy`; el script no se ha conectado a Coolify ni se ha desplegado esta versión.
+- Compilación del cliente y verificación de tipos del servidor: correctas. Las 10 pruebas de `tests/projects.test.ts` pasaron con acceso a `127.0.0.1`, incluida la del seguimiento diario. La suite completa registró 44 pruebas aprobadas y un error `EPERM` de limpieza temporal en `tests/leads.test.ts` bajo Windows. Se corrigió además una inconsistencia existente en la clasificación Eisenhower devuelta al crear compromisos; la prueba correspondiente pasó en la repetición. La primera ejecución en el entorno restringido no pudo conectar al servidor local.

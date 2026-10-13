@@ -73,6 +73,16 @@ db.exec(`
     created_at TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS project_updates_project_created ON project_updates(project_id, created_at DESC);
+  CREATE TABLE IF NOT EXISTS project_checkins (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    author TEXT NOT NULL,
+    progress_text TEXT NOT NULL,
+    blocker_text TEXT,
+    next_action TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS project_checkins_project_created ON project_checkins(project_id, created_at DESC);
 `)
 
 export class ProjectError extends Error {
@@ -552,6 +562,31 @@ export function addProjectUpdate(projectId: string, input: Record<string, unknow
   return updateFromRow(row('SELECT * FROM project_updates WHERE id = ?', id)!)
 }
 
+/** Diego's daily update is saved together with the next action and any new blocker. */
+export function recordProjectCheckin(projectId: string, input: Record<string, unknown>, actor: ProjectActor) {
+  requireProject(projectId, actor)
+  onlyKnownKeys(input, ['progress', 'blocker', 'nextAction'])
+  const progress = clean(input.progress, 'progress', 2000, { required: true })!
+  const blocker = clean(input.blocker, 'blocker', 2000)
+  const nextAction = clean(input.nextAction, 'nextAction', 2000, { required: true })!
+  const id = randomUUID()
+  const createdAt = new Date().toISOString()
+  db.exec('BEGIN IMMEDIATE')
+  try {
+    updateProject(projectId, { nextAction }, actor)
+    addProjectUpdate(projectId, { kind: 'avance', text: progress }, actor)
+    if (blocker) addProjectUpdate(projectId, { kind: 'bloqueo', text: blocker }, actor)
+    db.prepare('INSERT INTO project_checkins (id, project_id, author, progress_text, blocker_text, next_action, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(id, projectId, actor.actorId ?? actor.source, progress, blocker, nextAction, createdAt)
+    addAudit({ action: 'project_checkin_recorded', summary: `${projectId}/${id}`, source: actor.source, actorId: actor.actorId })
+    db.exec('COMMIT')
+  } catch (error) {
+    db.exec('ROLLBACK')
+    throw error
+  }
+  return { id, projectId, progress, blocker, nextAction, createdAt }
+}
+
 export function resolveBlocker(projectId: string, updateId: string, input: Record<string, unknown>, actor: ProjectActor): ProjectUpdate {
   requireProject(projectId, actor)
   const found = row('SELECT * FROM project_updates WHERE id = ? AND project_id = ?', updateId, projectId)
@@ -571,8 +606,24 @@ export function projectsDigest(actor: ProjectActor, now = Date.now()) {
   const projects = listProjects(actor, {}, now)
   const tracked = projects.filter((project) => project.health !== null)
   const names = new Map(projects.map((project) => [project.id, project.name]))
-  const visible = projects.filter((project) => project.status !== 'cancelado' && project.status !== 'por_clasificar').map((project) => project.id)
-  const openMilestones = rows(`SELECT * FROM project_milestones WHERE deleted_at IS NULL ${milestoneOrder}`).map(milestoneFromRow)
+  const active = projects.filter((project) => project.status === 'propuesta' || project.status === 'en_curso')
+  const visible = active.map((project) => project.id)
+  const allMilestones = rows(`SELECT * FROM project_milestones WHERE deleted_at IS NULL ${milestoneOrder}`).map(milestoneFromRow)
+  const visibleTasks = tasksByProject(actor).visible
+  const missingAction = (value: string | null | undefined) => !value?.trim() || /^(revisar solicitud|definir siguiente acci[oó]n)[.!]?$/i.test(value.trim())
+  const exceptions = active.flatMap((project) => {
+    const ownTasks = (visibleTasks.get(project.id) ?? []).filter(isOpenTask)
+    const found: { projectId: string; projectName: string; type: 'blocked_project' | 'blocked_task' | 'missing_project_action' | 'missing_task_action'; title: string; owner: string | null; taskId: string | null }[] = []
+    const blockedMilestones = allMilestones.filter((milestone) => milestone.projectId === project.id && milestone.status === 'blocked').length
+    if (project.openBlockers > 0 || blockedMilestones > 0) found.push({ projectId: project.id, projectName: project.name, type: 'blocked_project', title: `${project.openBlockers} bloqueos abiertos; ${blockedMilestones} hitos bloqueados`, owner: project.ownerAgentId, taskId: null })
+    if (missingAction(project.nextAction)) found.push({ projectId: project.id, projectName: project.name, type: 'missing_project_action', title: 'Proyecto sin próxima acción definida', owner: project.ownerAgentId, taskId: null })
+    for (const task of ownTasks) {
+      if (task.status === 'blocked') found.push({ projectId: project.id, projectName: project.name, type: 'blocked_task', title: task.title, owner: task.agentId, taskId: task.id })
+      if (task.kind === 'request' && missingAction(task.nextAction)) found.push({ projectId: project.id, projectName: project.name, type: 'missing_task_action', title: task.title, owner: task.agentId, taskId: task.id })
+    }
+    return found
+  })
+  const openMilestones = allMilestones
     .filter((milestone) => visible.includes(milestone.projectId) && isOpenMilestone(milestone.status))
     .sort((left, right) => left.dueAt.localeCompare(right.dueAt))
   const withProject = (milestone: Milestone) => ({ projectId: milestone.projectId, projectName: names.get(milestone.projectId) ?? milestone.projectId, ...brief(milestone, now) })
@@ -588,6 +639,7 @@ export function projectsDigest(actor: ProjectActor, now = Date.now()) {
       porClasificar: projects.filter((project) => project.status === 'por_clasificar').length,
     },
     attention: tracked.filter((project) => project.health !== 'verde').map((project) => ({ projectId: project.id, name: project.name, status: project.status, health: project.health, reasons: project.healthReasons, nextAction: project.nextAction })),
+    exceptions,
     overdueMilestones: openMilestones.filter((milestone) => isOverdue(milestone, now)).map(withProject),
     upcomingMilestones: openMilestones.filter((milestone) => !isOverdue(milestone, now) && Date.parse(milestone.dueAt) - now <= UPCOMING_DAYS * DAY_MS).map(withProject),
     openBlockers: blockers.map((update) => ({ projectId: update.projectId, projectName: names.get(update.projectId) ?? update.projectId, updateId: update.id, text: update.text, createdAt: update.createdAt, daysOpen: Math.floor((now - Date.parse(update.createdAt)) / DAY_MS) })),
