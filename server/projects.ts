@@ -607,7 +607,7 @@ export function projectsDigest(actor: ProjectActor, now = Date.now()) {
   const tracked = projects.filter((project) => project.health !== null)
   const names = new Map(projects.map((project) => [project.id, project.name]))
   const active = projects.filter((project) => project.status === 'propuesta' || project.status === 'en_curso')
-  const visible = active.map((project) => project.id)
+  const visible = projects.filter((project) => project.status !== 'cancelado' && project.status !== 'por_clasificar').map((project) => project.id)
   const allMilestones = rows(`SELECT * FROM project_milestones WHERE deleted_at IS NULL ${milestoneOrder}`).map(milestoneFromRow)
   const visibleTasks = tasksByProject(actor).visible
   const missingAction = (value: string | null | undefined) => !value?.trim() || /^(revisar solicitud|definir siguiente acci[oó]n)[.!]?$/i.test(value.trim())

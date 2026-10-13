@@ -4,19 +4,19 @@ Actualizado: 2026-10-13
 
 ## Datos disponibles
 
-- Instancia: Coolify usado para desplegar Dmente Synapse.
+- Instancia: `https://coolify-hermes.dmentedigital.co/`, confirmada por el usuario y abierta en el panel autenticado el 13 de octubre de 2026.
 - Aplicación de Synapse en producción: `j20dljqtnxzcq5nrxhxdrrik`. Este identificador corresponde a Synapse; el otro proyecto debe usar el identificador de su propia aplicación.
 - El token local mencionado en el estado de Synapse no tenía permiso `deploy` cuando se intentó desplegar por terminal. Hay que comprobar los permisos del token que se entregue al otro proyecto.
 
 ## Datos que debe completar el administrador de Coolify
 
 ```dotenv
-COOLIFY_BASE_URL=https://<dominio-del-panel-coolify>
+COOLIFY_BASE_URL=https://coolify-hermes.dmentedigital.co/
 COOLIFY_API_TOKEN=<token-creado-para-el-otro-proyecto>
 COOLIFY_APPLICATION_UUID=<uuid-de-la-aplicacion-del-otro-proyecto>
 ```
 
-No se ha verificado en este repositorio la URL del panel de Coolify ni el UUID de la aplicación del otro proyecto. La URL pública `https://synapse.dmentedigital.co` corresponde a Synapse y no se debe asumir que es la URL de la API de Coolify.
+No se ha verificado el UUID de la aplicación del otro proyecto. La URL pública `https://synapse.dmentedigital.co` corresponde a Synapse; la URL del panel es la indicada arriba.
 
 ## Entrega al otro proyecto
 
