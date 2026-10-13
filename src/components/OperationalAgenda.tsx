@@ -9,7 +9,9 @@ type ApiPriority = AgendaItem['priority']
 type RescheduleMode = 'both' | 'start' | 'due'
 type RescheduleEdit = { item: AgendaItem; day: string; mode: RescheduleMode; busy: boolean }
 type Props = { items: AgendaItem[]; loadError: string; onCreate: (input: Omit<NewAgendaItem, 'startsAt' | 'dueAt'> & { startsAt: string | null; dueAt: string | null }) => Promise<void>; onEdit: (id: string, input: Record<string, unknown>) => Promise<void>; onDelete: (item: AgendaItem) => Promise<void>; onUpdateStatus: (id: string, status: AgendaItem['status'], comment: string) => Promise<void>; onApprove: (id: string) => Promise<void>; onClose: () => void }
-type View = 'today' | 'tomorrow' | 'week' | 'overdue' | 'calendar' | 'kanban'
+type View = 'today' | 'tomorrow' | 'week' | 'overdue' | 'calendar' | 'kanban' | 'eisenhower'
+type Quadrant = 'Q1' | 'Q2' | 'Q3' | 'Q4'
+const quadrantLabels: Record<Quadrant, { title: string; action: string; tone: string }> = { Q1: { title: 'Urgente + importante', action: 'Hacer hoy', tone: 'q1' }, Q2: { title: 'Importante, no urgente', action: 'Agendar', tone: 'q2' }, Q3: { title: 'Urgente, no importante', action: 'Delegar', tone: 'q3' }, Q4: { title: 'No urgente, no importante', action: 'Archivar', tone: 'q4' } }
 const statusLabels: Record<AgendaItem['status'], string> = { pending: 'Pendiente', in_progress: 'En progreso', waiting_approval: 'Esperando aprobación', blocked: 'Bloqueado', done: 'Hecho', cancelled: 'Cancelado' }
 const priorityLabels = { urgent: 'Urgente', high: 'Alta', normal: 'Normal', low: 'Baja' } as const
 const domainLabels: Record<string, string> = { family: 'Familia', health: 'Salud familiar', agency: 'Agencia', sales: 'Ventas', marketing: 'Marketing', technology: 'Técnico / producto', learning: 'Aprendizaje', projects: 'Proyectos', personal: 'Personal', education: 'Educación', church: 'Iglesia', wellbeing: 'Bienestar', finance: 'Finanzas', knowledge: 'Conocimiento', product: 'Producto', messaging: 'Mensajería', legal: 'Legal' }
@@ -106,6 +108,7 @@ export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete
   const [priority, setPriority] = useState('all')
   const [status, setStatus] = useState('active')
   const [approvalOnly, setApprovalOnly] = useState(false)
+  const [sourceTopic, setSourceTopic] = useState('all')
   const [busyId, setBusyId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<AgendaItem | null>(null)
@@ -116,6 +119,7 @@ export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete
   const [statusBusy, setStatusBusy] = useState(false)
   const [createBusy, setCreateBusy] = useState(false)
   const [newItem, setNewItem] = useState<NewAgendaItem>({ title: '', domain: 'projects', projectId: '', agentId: 'pmo', priority: 'normal', riskLevel: 'low', requiresApproval: false, startsAt: '', dueAt: '', nextAction: '' })
+  const [quadrantEdit, setQuadrantEdit] = useState<Quadrant | null>(null)
   const [error, setError] = useState('')
   const modalBusy = useRef(false)
   modalBusy.current = createBusy || deleteBusy || statusBusy || Boolean(rescheduleEdit?.busy)
@@ -147,6 +151,7 @@ export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete
   function openEditor(item: AgendaItem | null) {
     setError('')
     setEditingItem(item)
+    setQuadrantEdit(item?.eisenhower?.quadrant ?? null)
     setNewItem(item ? { title: item.title, domain: item.domain, projectId: item.projectId ?? '', agentId: item.agentId, priority: item.priority, riskLevel: item.riskLevel, requiresApproval: item.requiresApproval, startsAt: localInputDate(item.startsAt), dueAt: localInputDate(item.dueAt), nextAction: item.nextAction } : { title: '', domain: 'projects', projectId: '', agentId: 'pmo', priority: 'normal', riskLevel: 'low', requiresApproval: false, startsAt: '', dueAt: '', nextAction: '' })
     setCreateOpen(true)
   }
@@ -179,7 +184,7 @@ export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete
       : view === 'tomorrow' ? day === tomorrow
         : view === 'week' || view === 'calendar' ? day !== null && day >= today && day <= weekEnd
         : view === 'overdue' ? deadlineDay(item) !== null && deadlineDay(item)! < today
-            : true
+            : view === 'eisenhower' ? true : true
     return inSelectedView
       && (domain === 'all' || item.domain === domain)
       && (project === 'all' || item.projectId === project)
@@ -187,7 +192,8 @@ export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete
       && (priority === 'all' || item.priority === priority)
       && (status === 'all' || (status === 'active' ? (view === 'kanban' ? item.status !== 'cancelled' : active) : item.status === status))
       && (!approvalOnly || (item.requiresApproval && !item.approvalConfirmed))
-  }).sort((left, right) => (left.startsAt ?? left.dueAt ?? '').localeCompare(right.startsAt ?? right.dueAt ?? '')), [items, view, today, tomorrow, weekEnd, domain, project, agent, priority, status, approvalOnly])
+      && (sourceTopic === 'all' || item.eisenhower?.sourceTopic === sourceTopic)
+  }).sort((left, right) => (left.startsAt ?? left.dueAt ?? '').localeCompare(right.startsAt ?? right.dueAt ?? '')), [items, view, today, tomorrow, weekEnd, domain, project, agent, priority, status, approvalOnly, sourceTopic])
 
   async function runAction(id: string, action: () => Promise<void>) {
     setBusyId(id)
@@ -211,7 +217,7 @@ export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete
           const value = input[key as keyof typeof input]
           const original = editingItem[key as keyof AgendaItem]
           return (value === original || (key === 'projectId' && !value && !original)) ? [] : [[key, value]]
-        }))
+        })); if (quadrantEdit !== editingItem.eisenhower?.quadrant) changes.quadrant = quadrantEdit
         if (Object.keys(changes).length) await onEdit(editingItem.id, changes)
       } else await onCreate(input)
       setNewItem({ title: '', domain: 'projects', projectId: '', agentId: 'pmo', priority: 'normal', riskLevel: 'low', requiresApproval: false, startsAt: '', dueAt: '', nextAction: '' })
@@ -269,15 +275,16 @@ export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete
     return <article className={`agenda-task priority-${item.priority} ${overdue ? 'is-overdue' : ''}`} key={item.id}>
       <div className="agenda-task-identity">
         <span className="agenda-agent-avatar" style={{ '--agent-color': person.color } as CSSProperties}><img src={person.normal} alt="" /></span>
-        <div className="agenda-task-heading"><strong>{item.title}</strong><div className="agenda-tags">{item.kind === 'milestone' ? <span className="agenda-milestone-tag"><Flag size={10} />Hito</span> : <span className={`agenda-priority ${item.priority}`}>{priorityLabels[item.priority] ?? item.priority}</span>}<span className={`agenda-domain domain-${item.domain}`}>{domainLabels[item.domain] ?? item.domain}</span>{item.requiresApproval && <span className={item.approvalConfirmed ? 'agenda-approval approved' : 'agenda-approval'}>{item.approvalConfirmed ? 'Aprobación registrada' : 'Requiere aprobación'}</span>}</div></div>
+        <div className="agenda-task-heading"><strong>{item.title}</strong><div className="agenda-tags">{item.kind === 'milestone' ? <span className="agenda-milestone-tag"><Flag size={10} />Hito</span> : <span className={`agenda-priority ${item.priority}`}>{priorityLabels[item.priority] ?? item.priority}</span>}<span className={`agenda-domain domain-${item.domain}`}>{domainLabels[item.domain] ?? item.domain}</span>{item.eisenhower?.quadrant && <span className={`agenda-quadrant ${item.eisenhower.quadrant.toLowerCase()}`}>{item.eisenhower.quadrant}</span>}{item.requiresApproval && <span className={item.approvalConfirmed ? 'agenda-approval approved' : 'agenda-approval'}>{item.approvalConfirmed ? 'Aprobación registrada' : 'Requiere aprobación'}</span>}</div></div>
         {item.kind !== 'milestone' && <span className={`agenda-risk ${item.riskLevel}`} title={`Riesgo ${item.riskLevel}`}><i />Riesgo {item.riskLevel === 'low' ? 'bajo' : item.riskLevel === 'medium' ? 'medio' : 'alto'}</span>}
       </div>
-      <div className="agenda-task-meta"><span><CalendarClock size={14} />{formatSchedule(item)}</span><span><Sparkles size={13} />{person.name}</span>{item.projectId && <span className="agenda-project">{item.projectId}</span>}{overdue && <span className="agenda-overdue"><AlertTriangle size={13} />Atrasada</span>}</div>
+      <div className="agenda-task-meta"><span><CalendarClock size={14} />{formatSchedule(item)}</span><span><Sparkles size={13} />{person.name}</span>{item.projectId && <span className="agenda-project">{item.projectId}</span>}{item.eisenhower?.sourceTopic && <span className="agenda-source-topic">{item.eisenhower.sourceTopic}</span>}{overdue && <span className="agenda-overdue"><AlertTriangle size={13} />Atrasada</span>}</div>
       {item.nextAction && <p className="agenda-next-action"><b>Siguiente:</b> {item.nextAction}</p>}
       {item.lastStatusComment?.comment && <p className="agenda-status-comment"><b>Comentario del cambio:</b> {item.lastStatusComment.comment}</p>}
       {item.sourcePath && <div className="agenda-source"><ExternalLink size={12} />{item.sourcePath.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? 'Referencia del proyecto'}</div>}
       <div className="agenda-task-footer"><span className={`agenda-status ${item.status}`}><Circle size={8} fill="currentColor" />{statusLabels[item.status] ?? item.status}</span>{item.kind === 'milestone' ? <div className="agenda-task-actions"><button className="agenda-edit-task" aria-label={`Ver el cronograma de ${item.title}`} onClick={() => { window.location.hash = `#projects/${encodeURIComponent(item.projectId ?? '')}` }}><Flag size={14} />Ver cronograma</button></div> : <div className="agenda-task-actions">
         {overdue && <button className="agenda-reschedule-task" disabled={busyId === item.id} aria-label={`Reprogramar ${item.title} esta semana`} onClick={() => openReschedule(item)}><CalendarClock size={14} />Esta semana</button>}
+        {view === 'eisenhower' && item.eisenhower?.quadrant === 'Q4' && <button className="agenda-edit-task" disabled={busyId === item.id} aria-label={`Archivar ${item.title}`} onClick={() => { if (window.confirm('Esta tarea se archivará con estado cancelado y conservará su historial. ¿Continuar?')) void runAction(item.id, () => onUpdateStatus(item.id, 'cancelled', 'Archivada desde la matriz de Eisenhower')) }}>Archivar</button>}
         <button className="agenda-edit-task" disabled={busyId === item.id} aria-label={`Editar ${item.title}`} onClick={() => openEditor(item)}><Pencil size={14} />Editar</button>
         <button className="agenda-delete-task" disabled={busyId === item.id} aria-label={`Eliminar ${item.title}`} onClick={() => { setError(''); setDeleteItem(item) }}><Trash2 size={14} />Eliminar</button>
         {item.requiresApproval && !item.approvalConfirmed && <button className="agenda-approve" disabled={busyId === item.id} onClick={() => void runAction(item.id, () => onApprove(item.id))}><ShieldAlert size={14} />Aprobar</button>}
@@ -288,7 +295,7 @@ export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete
     </article>
   }
 
-  const viewOptions: { id: View; label: string }[] = [{ id: 'today', label: 'Hoy' }, { id: 'tomorrow', label: 'Mañana' }, { id: 'week', label: 'Esta semana' }, { id: 'overdue', label: `Atrasadas${counts.overdue ? ` · ${counts.overdue}` : ''}` }, { id: 'calendar', label: 'Calendario' }, { id: 'kanban', label: 'Kanban' }]
+  const viewOptions: { id: View; label: string }[] = [{ id: 'today', label: 'Hoy' }, { id: 'tomorrow', label: 'Mañana' }, { id: 'week', label: 'Esta semana' }, { id: 'overdue', label: `Atrasadas${counts.overdue ? ` · ${counts.overdue}` : ''}` }, { id: 'calendar', label: 'Calendario' }, { id: 'kanban', label: 'Kanban' }, { id: 'eisenhower', label: 'Eisenhower' }]
 
   return <section className="operational-agenda" aria-label="Agenda Operativa">
     <header className="agenda-hero"><div><span className="eyebrow">DMENTE SYNAPSE · CENTRO DE MANDO</span><h1>Agenda <em>Operativa</em></h1><p>El siguiente movimiento de cada proyecto, en un solo lugar.</p></div><div className="agenda-hero-stats"><div className="agenda-stat"><strong>{counts.today}</strong><span>para hoy</span></div><div className="agenda-stat"><strong>{counts.tomorrow}</strong><span>mañana</span></div><button className={`agenda-stat approval-stat ${approvalOnly ? 'selected' : ''}`} onClick={() => { setApprovalOnly((current) => !current); setView('week') }}><strong>{counts.approvals}</strong><span>por aprobar</span></button></div></header>
@@ -300,6 +307,7 @@ export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete
       <select aria-label="Filtrar por agente" value={agent} onChange={(event) => setAgent(event.target.value)}><option value="all">Todos los agentes</option>{agentIds.map((id) => <option key={id} value={id}>{agentView(id).name}</option>)}</select>
       <select aria-label="Filtrar por prioridad" value={priority} onChange={(event) => setPriority(event.target.value)}><option value="all">Toda prioridad</option>{Object.entries(priorityLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
       <select aria-label="Filtrar por estado" value={status} onChange={(event) => setStatus(event.target.value)}><option value="active">Estados activos</option><option value="all">Todos los estados</option>{Object.entries(statusLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
+      <select aria-label="Filtrar por hilo de origen" value={sourceTopic} onChange={(event) => setSourceTopic(event.target.value)}><option value="all">Todos los hilos</option>{[...new Set(items.map((item) => item.eisenhower?.sourceTopic).filter((value): value is string => Boolean(value)))].sort().map((topic) => <option key={topic} value={topic}>{topic}</option>)}</select>
     </div>
     {(error || loadError) && <div className="agenda-error" role="alert"><AlertTriangle size={15} />{error || loadError}</div>}
     {deleteItem && <div className="agenda-modal-backdrop"><form tabIndex={-1} className="agenda-create-form status-comment-modal" role="alertdialog" aria-modal="true" aria-labelledby="agenda-delete-title" onSubmit={(event) => void confirmDelete(event)}>
@@ -327,7 +335,7 @@ export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete
       <footer><button className="agenda-close" type="button" disabled={rescheduleEdit.busy} onClick={() => setRescheduleEdit(null)}>Cancelar</button><button className="agenda-new-task" type="submit" disabled={rescheduleEdit.busy}>{rescheduleEdit.busy ? 'Guardando…' : 'Reprogramar tarea'}</button></footer>
     </form></div>}
     <div className="agenda-content">
-      {view === 'kanban' ? <div className="agenda-kanban">{kanbanColumns.map((column) => {
+      {view === 'eisenhower' ? <div className="eisenhower-grid">{(Object.keys(quadrantLabels) as Quadrant[]).map((quadrant) => { const columnItems = filteredItems.filter((item) => item.eisenhower?.quadrant === quadrant); const meta = quadrantLabels[quadrant]; return <section className={`eisenhower-quadrant ${meta.tone}`} key={quadrant}><header><div><span>{quadrant}</span><strong>{meta.title}</strong><small>{meta.action}</small></div><b>{columnItems.length}</b></header><div className="eisenhower-cards">{columnItems.map((item) => renderCard(item))}{columnItems.length === 0 && <p className="kanban-empty">Sin tareas clasificadas</p>}</div></section> })}</div> : view === 'kanban' ? <div className="agenda-kanban">{kanbanColumns.map((column) => {
         const columnItems = filteredItems.filter((item) => kanbanStatus(item) === column)
         return <section className={`kanban-column ${column}`} key={column}><header><span>{statusLabels[column]}</span><b>{columnItems.length}</b></header><div className="kanban-cards">{columnItems.map((item) => renderCard(item))}{columnItems.length === 0 && <p className="kanban-empty">Sin tareas</p>}</div></section>
       })}</div> : view === 'calendar' ? <div className="agenda-calendar-week">{Array.from({ length: 7 }, (_, index) => shiftDay(today, index)).map((day) => {
@@ -347,6 +355,7 @@ export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete
         <label className="agenda-field">Riesgo<select value={newItem.riskLevel} onChange={(event) => setNewItem({ ...newItem, riskLevel: event.target.value as AgendaItem['riskLevel'] })}><option value="low">Bajo</option><option value="medium">Medio</option><option value="high">Alto</option></select></label></>}
         <label className="agenda-field">Inicia<input name="startsAt" type="datetime-local" value={newItem.startsAt} onChange={(event) => setNewItem({ ...newItem, startsAt: event.target.value })} /></label>
         <label className="agenda-field">Vence<input name="dueAt" type="datetime-local" value={newItem.dueAt} onChange={(event) => setNewItem({ ...newItem, dueAt: event.target.value })} /></label>
+        {editingItem && <label className="agenda-field">Cuadrante<select aria-label="Cuadrante Eisenhower" value={quadrantEdit ?? ''} onChange={(event) => setQuadrantEdit((event.target.value || null) as Quadrant | null)}><option value="">Inferido automáticamente</option>{(Object.entries(quadrantLabels) as [Quadrant, typeof quadrantLabels[Quadrant]][]).map(([id, label]) => <option key={id} value={id}>{id} · {label.title}</option>)}</select></label>}
         {editingItem?.kind !== 'commitment' && <><label className="agenda-field agenda-field-wide">Proyecto<input maxLength={120} list="agenda-project-options" value={newItem.projectId} onChange={(event) => setNewItem({ ...newItem, projectId: event.target.value })} placeholder="ID del proyecto (opcional)" /><datalist id="agenda-project-options">{projects.map((item) => <option key={item} value={item} />)}</datalist></label>
         <label className="agenda-field agenda-field-wide">Siguiente acción<textarea maxLength={2000} rows={2} value={newItem.nextAction} onChange={(event) => setNewItem({ ...newItem, nextAction: event.target.value })} placeholder="Primer paso concreto (opcional)" /></label></>}
       </div>

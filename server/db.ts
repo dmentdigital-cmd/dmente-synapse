@@ -2,7 +2,8 @@ import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
-import type { Agent, AgentId, Commitment, Domain, Lead, LeadInput, MessageRecord, Permission, Profile, ProfileRole, RequestRecord, RequestStatus, UserAccount, UserRole } from './types.js'
+import type { Agent, AgentId, Commitment, Domain, EisenhowerFields, Lead, LeadInput, MessageRecord, Permission, Profile, ProfileRole, RequestRecord, RequestStatus, UserAccount, UserRole } from './types.js'
+import { inferQuadrant } from './eisenhower.js'
 
 const dataDir = process.env.SYNAPSE_DATA_DIR ?? path.resolve(process.cwd(), 'data')
 mkdirSync(dataDir, { recursive: true })
@@ -124,7 +125,14 @@ db.exec(`
     status TEXT NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
-    ,external_id TEXT UNIQUE
+    ,external_id TEXT UNIQUE,
+    project_id TEXT,
+    quadrant TEXT,
+    urgency TEXT,
+    importance TEXT,
+    urgency_reason TEXT,
+    importance_reason TEXT,
+    source_topic TEXT
   );
   CREATE TABLE IF NOT EXISTS requests (
     id TEXT PRIMARY KEY,
@@ -144,6 +152,12 @@ db.exec(`
     obsidian_note TEXT,
     source_path TEXT,
     source_drive_folder TEXT,
+    quadrant TEXT,
+    urgency TEXT,
+    importance TEXT,
+    urgency_reason TEXT,
+    importance_reason TEXT,
+    source_topic TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
@@ -304,6 +318,7 @@ const commitmentColumns = new Set((db.prepare('PRAGMA table_info(commitments)').
 if (!commitmentColumns.has('updated_at')) db.exec("ALTER TABLE commitments ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''")
 if (!commitmentColumns.has('external_id')) db.exec('ALTER TABLE commitments ADD COLUMN external_id TEXT')
 if (!commitmentColumns.has('project_id')) db.exec('ALTER TABLE commitments ADD COLUMN project_id TEXT')
+for (const [name, declaration] of Object.entries({ quadrant: 'TEXT', urgency: 'TEXT', importance: 'TEXT', urgency_reason: 'TEXT', importance_reason: 'TEXT', source_topic: 'TEXT' })) if (!commitmentColumns.has(name)) db.exec(`ALTER TABLE commitments ADD COLUMN ${name} ${declaration}`)
 
 const requestColumns = new Set((db.prepare('PRAGMA table_info(requests)').all() as { name: string }[]).map((column) => column.name))
 if (!requestColumns.has('project_id')) db.exec('ALTER TABLE requests ADD COLUMN project_id TEXT')
@@ -316,6 +331,7 @@ if (!requestColumns.has('approval_confirmed')) db.exec('ALTER TABLE requests ADD
 if (!requestColumns.has('approved_at')) db.exec('ALTER TABLE requests ADD COLUMN approved_at TEXT')
 if (!requestColumns.has('starts_at')) db.exec('ALTER TABLE requests ADD COLUMN starts_at TEXT')
 if (!requestColumns.has('due_at')) db.exec('ALTER TABLE requests ADD COLUMN due_at TEXT')
+for (const [name, declaration] of Object.entries({ quadrant: 'TEXT', urgency: 'TEXT', importance: 'TEXT', urgency_reason: 'TEXT', importance_reason: 'TEXT', source_topic: 'TEXT' })) if (!requestColumns.has(name)) db.exec(`ALTER TABLE requests ADD COLUMN ${name} ${declaration}`)
 
 const seedAgents: Agent[] = [
   { id: 'gerente', name: 'LuciaBot', role: 'Gerente y orquestadora', domain: 'personal' },
@@ -575,18 +591,20 @@ export function createCommitment(input: { title: string; domain: Domain; people?
   }
   const commitment: Commitment = {
     id: randomUUID(), title: input.title.trim(), domain: input.domain, people: input.people ?? [], source: input.source ?? 'manual',
-    startsAt: input.startsAt ?? null, dueAt: input.dueAt ?? null, status: 'captured', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), externalId: null, projectId: input.projectId ?? null,
+    startsAt: input.startsAt ?? null, dueAt: input.dueAt ?? null, status: 'captured', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), externalId: null, projectId: input.projectId ?? null, eisenhower: { quadrant: null, urgency: null, importance: null, urgencyReason: null, importanceReason: null, sourceTopic: null },
   }
-  db.prepare('INSERT INTO commitments (id, title, domain, people_json, source, starts_at, due_at, status, created_at, updated_at, external_id, project_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)')
-    .run(commitment.id, commitment.title, commitment.domain, JSON.stringify(commitment.people), commitment.source, commitment.startsAt, commitment.dueAt, commitment.status, commitment.createdAt, commitment.updatedAt, commitment.projectId ?? null)
+  db.prepare('INSERT INTO commitments (id, title, domain, people_json, source, starts_at, due_at, status, created_at, updated_at, external_id, project_id, quadrant, urgency, importance, urgency_reason, importance_reason, source_topic) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)')
+    .run(commitment.id, commitment.title, commitment.domain, JSON.stringify(commitment.people), commitment.source, commitment.startsAt, commitment.dueAt, commitment.status, commitment.createdAt, commitment.updatedAt, commitment.projectId ?? null, null, null, null, null, null, null)
   return commitment
 }
 
 function commitmentFromRow(row: Record<string, unknown>): Commitment {
-  return {
+  const commitment: Commitment = {
     id: String(row.id), title: String(row.title), domain: row.domain as Domain, people: JSON.parse(String(row.people_json)), source: row.source as Commitment['source'], externalId: row.external_id ? String(row.external_id) : null, projectId: row.project_id ? String(row.project_id) : null,
-    startsAt: row.starts_at ? String(row.starts_at) : null, dueAt: row.due_at ? String(row.due_at) : null, status: row.status as Commitment['status'], createdAt: String(row.created_at), updatedAt: String(row.updated_at || row.created_at),
+    startsAt: row.starts_at ? String(row.starts_at) : null, dueAt: row.due_at ? String(row.due_at) : null, status: row.status as Commitment['status'], createdAt: String(row.created_at), updatedAt: String(row.updated_at || row.created_at), eisenhower: { quadrant: (row.quadrant as EisenhowerFields['quadrant']) ?? null, urgency: (row.urgency as EisenhowerFields['urgency']) ?? null, importance: (row.importance as EisenhowerFields['importance']) ?? null, urgencyReason: row.urgency_reason ? String(row.urgency_reason) : null, importanceReason: row.importance_reason ? String(row.importance_reason) : null, sourceTopic: row.source_topic ? String(row.source_topic) : null },
   }
+  commitment.eisenhower.quadrant ??= inferQuadrant(commitment)
+  return commitment
 }
 
 // Tombstones retain history and keep seeded tasks from reappearing after restart.
@@ -604,8 +622,8 @@ export function updateCommitment(id: string, patch: Partial<Commitment>): Commit
   const current = getCommitment(id)
   if (!current) return null
   const next = { ...current, ...patch }
-  db.prepare('UPDATE commitments SET title = ?, domain = ?, people_json = ?, starts_at = ?, due_at = ?, status = ?, project_id = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL')
-    .run(next.title, next.domain, JSON.stringify(next.people), next.startsAt, next.dueAt, next.status, next.projectId ?? null, new Date().toISOString(), id)
+  db.prepare('UPDATE commitments SET title = ?, domain = ?, people_json = ?, starts_at = ?, due_at = ?, status = ?, project_id = ?, quadrant = ?, urgency = ?, importance = ?, urgency_reason = ?, importance_reason = ?, source_topic = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL')
+    .run(next.title, next.domain, JSON.stringify(next.people), next.startsAt, next.dueAt, next.status, next.projectId ?? null, next.eisenhower.quadrant, next.eisenhower.urgency, next.eisenhower.importance, next.eisenhower.urgencyReason, next.eisenhower.importanceReason, next.eisenhower.sourceTopic, new Date().toISOString(), id)
   return getCommitment(id)
 }
 
@@ -617,14 +635,14 @@ export function updateRequest(id: string, patch: Partial<RequestRecord>): Reques
   const current = getRequest(id)
   if (!current) return null
   const next = { ...current, ...patch }
-  const changedApprovedWork = current.approvalConfirmed && Object.entries(patch).some(([key, value]) => key !== 'status' && value !== current[key as keyof RequestRecord])
+  const changedApprovedWork = current.approvalConfirmed && Object.entries(patch).some(([key, value]) => key !== 'status' && key !== 'eisenhower' && value !== current[key as keyof RequestRecord])
   if (changedApprovedWork || (!current.requiresApproval && next.requiresApproval)) {
     next.approvalConfirmed = false
     next.approvedAt = null
     next.status = 'waiting_approval'
   }
-  db.prepare('UPDATE requests SET title = ?, domain = ?, agent_id = ?, project_id = ?, priority = ?, risk_level = ?, next_action = ?, requires_approval = ?, approval_confirmed = ?, approved_at = ?, status = ?, starts_at = ?, due_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL')
-    .run(next.title, next.domain, next.agentId, next.projectId, next.priority, next.riskLevel, next.nextAction ?? '', Number(next.requiresApproval), Number(next.approvalConfirmed), next.approvedAt, next.status, next.startsAt, next.dueAt, new Date().toISOString(), id)
+  db.prepare('UPDATE requests SET title = ?, domain = ?, agent_id = ?, project_id = ?, priority = ?, risk_level = ?, next_action = ?, requires_approval = ?, approval_confirmed = ?, approved_at = ?, status = ?, starts_at = ?, due_at = ?, quadrant = ?, urgency = ?, importance = ?, urgency_reason = ?, importance_reason = ?, source_topic = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL')
+    .run(next.title, next.domain, next.agentId, next.projectId, next.priority, next.riskLevel, next.nextAction ?? '', Number(next.requiresApproval), Number(next.approvalConfirmed), next.approvedAt, next.status, next.startsAt, next.dueAt, next.eisenhower.quadrant, next.eisenhower.urgency, next.eisenhower.importance, next.eisenhower.urgencyReason, next.eisenhower.importanceReason, next.eisenhower.sourceTopic, new Date().toISOString(), id)
   return getRequest(id)
 }
 
@@ -636,10 +654,14 @@ export function listCommitments(domain?: Domain): Commitment[] {
   const rows = domain
     ? db.prepare('SELECT * FROM commitments WHERE domain = ? AND deleted_at IS NULL ORDER BY COALESCE(starts_at, due_at, created_at)').all(domain)
     : db.prepare('SELECT * FROM commitments WHERE deleted_at IS NULL ORDER BY COALESCE(starts_at, due_at, created_at)').all()
-  return (rows as Record<string, unknown>[]).map((row) => ({
+  return (rows as Record<string, unknown>[]).map((row) => {
+    const commitment: Commitment = {
     id: String(row.id), title: String(row.title), domain: row.domain as Domain, people: JSON.parse(String(row.people_json)), source: row.source as Commitment['source'], externalId: row.external_id ? String(row.external_id) : null, projectId: row.project_id ? String(row.project_id) : null,
-    startsAt: row.starts_at ? String(row.starts_at) : null, dueAt: row.due_at ? String(row.due_at) : null, status: row.status as Commitment['status'], createdAt: String(row.created_at), updatedAt: String(row.updated_at || row.created_at),
-  }))
+    startsAt: row.starts_at ? String(row.starts_at) : null, dueAt: row.due_at ? String(row.due_at) : null, status: row.status as Commitment['status'], createdAt: String(row.created_at), updatedAt: String(row.updated_at || row.created_at), eisenhower: { quadrant: (row.quadrant as EisenhowerFields['quadrant']) ?? null, urgency: (row.urgency as EisenhowerFields['urgency']) ?? null, importance: (row.importance as EisenhowerFields['importance']) ?? null, urgencyReason: row.urgency_reason ? String(row.urgency_reason) : null, importanceReason: row.importance_reason ? String(row.importance_reason) : null, sourceTopic: row.source_topic ? String(row.source_topic) : null },
+    }
+    commitment.eisenhower.quadrant ??= inferQuadrant(commitment)
+    return commitment
+  })
 }
 
 export function updateCommitmentStatus(id: string, status: Commitment['status']): Commitment | null {
@@ -650,9 +672,9 @@ export function updateCommitmentStatus(id: string, status: Commitment['status'])
 
 export function createRequest(input: { agentId: AgentId; domain: Domain; title: string; projectId?: string | null; priority?: RequestRecord['priority']; riskLevel: RequestRecord['riskLevel']; requiresApproval: boolean; initialStatus?: RequestStatus; startsAt?: string | null; dueAt?: string | null; nextAction?: string; obsidianNote?: string | null; sourcePath?: string | null; sourceDriveFolder?: string | null }): RequestRecord {
   const now = new Date().toISOString()
-  const request: RequestRecord = { id: randomUUID(), agentId: input.agentId, domain: input.domain, title: input.title, projectId: input.projectId ?? null, priority: input.priority ?? 'normal', status: input.requiresApproval ? 'waiting_approval' : input.initialStatus ?? 'in_progress', riskLevel: input.riskLevel, requiresApproval: input.requiresApproval, approvalConfirmed: false, approvedAt: null, nextAction: input.nextAction ?? 'Revisar solicitud', startsAt: input.startsAt ?? null, dueAt: input.dueAt ?? null, obsidianNote: input.obsidianNote ?? null, sourcePath: input.sourcePath ?? null, sourceDriveFolder: input.sourceDriveFolder ?? null, createdAt: now, updatedAt: now }
-  db.prepare('INSERT INTO requests (id, agent_id, domain, title, project_id, priority, status, risk_level, requires_approval, approval_confirmed, starts_at, due_at, next_action, obsidian_note, source_path, source_drive_folder, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(request.id, request.agentId, request.domain, request.title, request.projectId, request.priority, request.status, request.riskLevel, request.requiresApproval ? 1 : 0, request.startsAt, request.dueAt, request.nextAction, request.obsidianNote, request.sourcePath, request.sourceDriveFolder, now, now)
+  const request: RequestRecord = { id: randomUUID(), agentId: input.agentId, domain: input.domain, title: input.title, projectId: input.projectId ?? null, priority: input.priority ?? 'normal', status: input.requiresApproval ? 'waiting_approval' : input.initialStatus ?? 'in_progress', riskLevel: input.riskLevel, requiresApproval: input.requiresApproval, approvalConfirmed: false, approvedAt: null, nextAction: input.nextAction ?? 'Revisar solicitud', startsAt: input.startsAt ?? null, dueAt: input.dueAt ?? null, obsidianNote: input.obsidianNote ?? null, sourcePath: input.sourcePath ?? null, sourceDriveFolder: input.sourceDriveFolder ?? null, createdAt: now, updatedAt: now, eisenhower: { quadrant: null, urgency: null, importance: null, urgencyReason: null, importanceReason: null, sourceTopic: null } }
+  db.prepare('INSERT INTO requests (id, agent_id, domain, title, project_id, priority, status, risk_level, requires_approval, approval_confirmed, starts_at, due_at, next_action, obsidian_note, source_path, source_drive_folder, quadrant, urgency, importance, urgency_reason, importance_reason, source_topic, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(request.id, request.agentId, request.domain, request.title, request.projectId, request.priority, request.status, request.riskLevel, request.requiresApproval ? 1 : 0, request.startsAt, request.dueAt, request.nextAction, request.obsidianNote, request.sourcePath, request.sourceDriveFolder, null, null, null, null, null, null, now, now)
   return request
 }
 
@@ -702,7 +724,9 @@ export function updateRequestSources(id: string, sources: { obsidianNote?: strin
 }
 
 function requestFromRow(row: Record<string, unknown>): RequestRecord {
-  return { id: String(row.id), agentId: row.agent_id as AgentId, domain: row.domain as Domain, title: String(row.title), projectId: row.project_id ? String(row.project_id) : null, priority: (row.priority ?? 'normal') as RequestRecord['priority'], status: row.status as RequestStatus, riskLevel: row.risk_level as RequestRecord['riskLevel'], requiresApproval: Boolean(row.requires_approval), approvalConfirmed: Boolean(row.approval_confirmed), approvedAt: row.approved_at ? String(row.approved_at) : null, nextAction: String(row.next_action ?? 'Revisar solicitud'), startsAt: row.starts_at ? String(row.starts_at) : null, dueAt: row.due_at ? String(row.due_at) : null, obsidianNote: row.obsidian_note ? String(row.obsidian_note) : null, sourcePath: row.source_path ? String(row.source_path) : null, sourceDriveFolder: row.source_drive_folder ? String(row.source_drive_folder) : null, createdAt: String(row.created_at), updatedAt: String(row.updated_at) }
+  const request: RequestRecord = { id: String(row.id), agentId: row.agent_id as AgentId, domain: row.domain as Domain, title: String(row.title), projectId: row.project_id ? String(row.project_id) : null, priority: (row.priority ?? 'normal') as RequestRecord['priority'], status: row.status as RequestStatus, riskLevel: row.risk_level as RequestRecord['riskLevel'], requiresApproval: Boolean(row.requires_approval), approvalConfirmed: Boolean(row.approval_confirmed), approvedAt: row.approved_at ? String(row.approved_at) : null, nextAction: String(row.next_action ?? 'Revisar solicitud'), startsAt: row.starts_at ? String(row.starts_at) : null, dueAt: row.due_at ? String(row.due_at) : null, obsidianNote: row.obsidian_note ? String(row.obsidian_note) : null, sourcePath: row.source_path ? String(row.source_path) : null, sourceDriveFolder: row.source_drive_folder ? String(row.source_drive_folder) : null, createdAt: String(row.created_at), updatedAt: String(row.updated_at), eisenhower: { quadrant: (row.quadrant as EisenhowerFields['quadrant']) ?? null, urgency: (row.urgency as EisenhowerFields['urgency']) ?? null, importance: (row.importance as EisenhowerFields['importance']) ?? null, urgencyReason: row.urgency_reason ? String(row.urgency_reason) : null, importanceReason: row.importance_reason ? String(row.importance_reason) : null, sourceTopic: row.source_topic ? String(row.source_topic) : null } }
+  request.eisenhower.quadrant ??= inferQuadrant(request)
+  return request
 }
 
 export function getRequest(id: string): RequestRecord | null {

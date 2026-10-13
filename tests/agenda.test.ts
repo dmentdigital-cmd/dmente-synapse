@@ -156,3 +156,19 @@ test('editing tasks preserves approval and deleted seeded tasks do not reappear'
   assert.equal((await api('/api/operational-agenda')).data.items.some((item: any) => item.id === seed.id), false)
   assert.equal((await api(`${route}/details`, 'PATCH', { title: 'Resurrect' })).status, 404)
 })
+
+test('Eisenhower supports manual classification and grouped counts without external actions', async () => {
+  const created = (await api('/api/operational-agenda/items', 'POST', { title: 'Eisenhower fixture', domain: 'technology', agentId: 'tecnico', priority: 'normal', riskLevel: 'low' })).data.item
+  assert.equal(created.eisenhower.quadrant, 'Q2')
+  const updated = await api(`/api/operational-agenda/items/${created.id}/details`, 'PATCH', { quadrant: 'Q1', urgency: 'high', importance: 'high', sourceTopic: 'Proyectos / Tecnología' })
+  assert.equal(updated.status, 200)
+  assert.equal(updated.data.item.eisenhower.quadrant, 'Q1')
+  assert.equal(updated.data.item.eisenhower.sourceTopic, 'Proyectos / Tecnología')
+  const mcpUpdated = await mcp('synapse_update_task', { id: created.id, changes: { quadrant: 'Q3', urgency: 'high', importance: 'low', sourceTopic: 'Agenda / Recordatorios' } })
+  assert.equal(mcpUpdated.result.structuredContent.request.eisenhower.quadrant, 'Q3')
+  assert.equal(mcpUpdated.result.structuredContent.request.eisenhower.sourceTopic, 'Agenda / Recordatorios')
+  const agenda = await api('/api/operational-agenda?view=eisenhower')
+  assert.equal(agenda.status, 200)
+  assert.equal(agenda.data.counts.Q3 >= 1, true)
+  assert.equal(agenda.data.items.some((item: any) => item.id === created.id && item.eisenhower.quadrant === 'Q3'), true)
+})

@@ -1,5 +1,6 @@
 import { addAudit, deleteCommitment, deleteRequest, getCommitment, getRequest, listAgents, listPermissions, updateCommitment, updateRequest } from './db.js'
 import type { Commitment, Domain, RequestRecord } from './types.js'
+import { isEisenhowerLevel, isEisenhowerQuadrant } from './eisenhower.js'
 
 export class AgendaMutationError extends Error {
   constructor(message: string, public statusCode = 400) { super(message) }
@@ -26,7 +27,8 @@ export function editAgendaRecord(id: string, input: Record<string, unknown>, sou
   const found = findAgendaRecord(id, commitmentOnly)
   if (!found) throw new AgendaMutationError('Tarea no encontrada.', 404)
   if (!allowDomain(found.record.domain)) throw new AgendaMutationError('No tienes acceso a ese dominio.', 403)
-  const allowed = found.kind === 'commitment' ? ['title', 'domain', 'startsAt', 'dueAt', 'people', 'status', 'projectId'] : ['title', 'domain', 'startsAt', 'dueAt', 'projectId', 'agentId', 'priority', 'riskLevel', 'nextAction', 'requiresApproval', 'status']
+  const commonAllowed = ['title', 'domain', 'startsAt', 'dueAt', 'status', 'projectId', 'quadrant', 'urgency', 'importance', 'urgencyReason', 'importanceReason', 'sourceTopic']
+  const allowed = found.kind === 'commitment' ? [...commonAllowed, 'people'] : [...commonAllowed, 'agentId', 'priority', 'riskLevel', 'nextAction', 'requiresApproval']
   if (!Object.keys(input).length || Object.keys(input).some((key) => !allowed.includes(key))) throw new AgendaMutationError('Campos de edición no válidos.')
   const patch: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(input)) {
@@ -37,6 +39,11 @@ export function editAgendaRecord(id: string, input: Record<string, unknown>, sou
         if (typeof value !== 'string' || !/(Z|[+-]\d{2}:\d{2})$/.test(value) || Number.isNaN(Date.parse(value))) throw new AgendaMutationError('Revisa las fechas e incluye la zona horaria.')
         patch[key] = new Date(value).toISOString()
       }
+    } else if (key === 'quadrant' || key === 'urgency' || key === 'importance') {
+      if (value !== null && (typeof value !== 'string' || (key === 'quadrant' ? !isEisenhowerQuadrant(value) : !isEisenhowerLevel(value)))) throw new AgendaMutationError(`${key} no válido.`)
+      patch[key] = value
+    } else if (['urgencyReason', 'importanceReason', 'sourceTopic'].includes(key)) {
+      patch[key] = stringField(value, key, key === 'sourceTopic' ? 120 : 500, true)
     } else if (key === 'people') {
       if (!Array.isArray(value) || value.length > 20 || value.some((person) => typeof person !== 'string' || person.trim().length > 120)) throw new AgendaMutationError('people no válido.')
       patch.people = value.map((person: string) => person.trim()).filter(Boolean)
@@ -57,6 +64,11 @@ export function editAgendaRecord(id: string, input: Record<string, unknown>, sou
   const dueAt = patch.dueAt === undefined ? found.record.dueAt : patch.dueAt as string | null
   if (startsAt && dueAt && Date.parse(startsAt) > Date.parse(dueAt)) throw new AgendaMutationError('La fecha de vencimiento debe ser posterior al inicio.')
   if (found.kind === 'request' && (found.record.requiresApproval || patch.requiresApproval) && patch.status === 'done' && !found.record.approvalConfirmed) throw new AgendaMutationError('Confirma la aprobación antes de marcar esta tarea como hecha.', 409)
+  const eisenhower = { ...found.record.eisenhower }
+  for (const key of ['quadrant', 'urgency', 'importance', 'urgencyReason', 'importanceReason', 'sourceTopic'] as const) {
+    if (key in patch) { eisenhower[key] = patch[key] as never; delete patch[key] }
+  }
+  patch.eisenhower = eisenhower
   const record = found.kind === 'commitment' ? updateCommitment(found.record.id, patch as Partial<Commitment>) : updateRequest(found.record.id, patch as Partial<RequestRecord>)
   if (!record) throw new AgendaMutationError('Tarea no encontrada.', 404)
   addAudit({ action: `agenda_${found.kind}_edited`, summary: `${record.id}: ${record.title}`, source })

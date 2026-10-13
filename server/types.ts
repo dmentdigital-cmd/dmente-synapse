@@ -5,6 +5,16 @@ export type AgentId =
   | 'pmo' | 'tecnico' | 'ventas' | 'marketing' | 'legal' | 'finanzas-dmente'
   | 'producto-vertice' | 'producto-synapse' | 'whatsapp-conversaciones'
 export type RequestStatus = 'pending' | 'in_progress' | 'waiting_approval' | 'blocked' | 'done' | 'cancelled'
+export type EisenhowerQuadrant = 'Q1' | 'Q2' | 'Q3' | 'Q4'
+export type EisenhowerLevel = 'low' | 'medium' | 'high'
+export type EisenhowerFields = {
+  quadrant: EisenhowerQuadrant | null
+  urgency: EisenhowerLevel | null
+  importance: EisenhowerLevel | null
+  urgencyReason: string | null
+  importanceReason: string | null
+  sourceTopic: string | null
+}
 export type ProfileRole = 'owner' | 'assistant'
 export type UserRole = 'viewer' | 'operator' | 'approver' | 'admin'
 
@@ -79,6 +89,7 @@ export type Commitment = {
   status: 'captured' | 'planned' | 'confirmed' | 'pending' | 'in_progress' | 'waiting_approval' | 'blocked' | 'done' | 'cancelled'
   createdAt: string
   updatedAt: string
+  eisenhower: EisenhowerFields
 }
 
 export type RequestRecord = {
@@ -101,6 +112,7 @@ export type RequestRecord = {
   sourceDriveFolder: string | null
   createdAt: string
   updatedAt: string
+  eisenhower: EisenhowerFields
 }
 
 export type MessageRecord = {

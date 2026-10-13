@@ -15,6 +15,7 @@ import type { Domain, UserRole } from './types.js'
 import { editAgendaRecord, removeAgendaRecord } from './agenda-mutations.js'
 import { agendaMilestoneItems } from './projects.js'
 import { handleProjectRoutes } from './project-routes.js'
+import { inferQuadrant } from './eisenhower.js'
 
 const port = Number(process.env.PORT ?? 3010)
 const host = process.env.SYNAPSE_HOST ?? '127.0.0.1'
@@ -50,13 +51,13 @@ function inDomain(session: NonNullable<ReturnType<typeof accessFromRequest>>, do
 }
 
 function agendaItemFromRequest(request: ReturnType<typeof listRequests>[number]) {
-  return { id: request.id, kind: 'request' as const, requestId: request.id, commitmentId: null, title: request.title, domain: request.domain, projectId: request.projectId, agentId: request.agentId, status: request.status, priority: request.priority, riskLevel: request.riskLevel, requiresApproval: request.requiresApproval, approvalConfirmed: request.approvalConfirmed, startsAt: request.startsAt, dueAt: request.dueAt, nextAction: request.nextAction, sourcePath: request.sourcePath, sourceDriveFolder: request.sourceDriveFolder, createdAt: request.createdAt, updatedAt: request.updatedAt, lastStatusComment: getLatestAgendaStatusComment(request.id) }
+  return { id: request.id, kind: 'request' as const, requestId: request.id, commitmentId: null, title: request.title, domain: request.domain, projectId: request.projectId, agentId: request.agentId, status: request.status, priority: request.priority, riskLevel: request.riskLevel, requiresApproval: request.requiresApproval, approvalConfirmed: request.approvalConfirmed, startsAt: request.startsAt, dueAt: request.dueAt, nextAction: request.nextAction, sourcePath: request.sourcePath, sourceDriveFolder: request.sourceDriveFolder, eisenhower: { ...request.eisenhower, quadrant: request.eisenhower.quadrant ?? inferQuadrant(request) }, createdAt: request.createdAt, updatedAt: request.updatedAt, lastStatusComment: getLatestAgendaStatusComment(request.id) }
 }
 
 function agendaItemFromCommitment(commitment: ReturnType<typeof listCommitments>[number]) {
   const agentsByDomain: Partial<Record<Domain, string>> = { health: 'salud-familiar', family: 'salud-familiar', sales: 'ventas', marketing: 'marketing', learning: 'educacion-aprendizaje', projects: 'pmo', technology: 'tecnico', agency: 'pmo' }
   const status = commitment.status === 'done' ? 'done' : commitment.status === 'cancelled' ? 'cancelled' : commitment.status === 'in_progress' || commitment.status === 'confirmed' ? 'in_progress' : commitment.status === 'waiting_approval' ? 'waiting_approval' : commitment.status === 'blocked' ? 'blocked' : 'pending'
-  return { id: `commitment:${commitment.id}`, kind: 'commitment' as const, requestId: null, commitmentId: commitment.id, title: commitment.title, domain: commitment.domain, projectId: commitment.projectId ?? null, agentId: agentsByDomain[commitment.domain] ?? 'secretaria', status, priority: 'normal' as const, riskLevel: 'low' as const, requiresApproval: false, approvalConfirmed: false, startsAt: commitment.startsAt, dueAt: commitment.dueAt, nextAction: '', sourcePath: null, sourceDriveFolder: null, createdAt: commitment.createdAt, updatedAt: commitment.updatedAt, lastStatusComment: getLatestAgendaStatusComment(`commitment:${commitment.id}`) }
+  return { id: `commitment:${commitment.id}`, kind: 'commitment' as const, requestId: null, commitmentId: commitment.id, title: commitment.title, domain: commitment.domain, projectId: commitment.projectId ?? null, agentId: agentsByDomain[commitment.domain] ?? 'secretaria', status, priority: 'normal' as const, riskLevel: 'low' as const, requiresApproval: false, approvalConfirmed: false, startsAt: commitment.startsAt, dueAt: commitment.dueAt, nextAction: '', sourcePath: null, sourceDriveFolder: null, eisenhower: { ...commitment.eisenhower, quadrant: commitment.eisenhower.quadrant ?? inferQuadrant(commitment) }, createdAt: commitment.createdAt, updatedAt: commitment.updatedAt, lastStatusComment: getLatestAgendaStatusComment(`commitment:${commitment.id}`) }
 }
 
 async function completeWithHermes(input: { requestId: string; conversationAgentId: Parameters<typeof addMessage>[0]['agentId']; decision: ReturnType<typeof routeRequest> }): Promise<void> {
@@ -391,7 +392,10 @@ const server = createServer(async (req, res) => {
         const day = date.slice(0, 10)
         return (!from || day >= from) && (!to || day <= to)
       }).sort((left, right) => (left.startsAt ?? left.dueAt ?? '').localeCompare(right.startsAt ?? right.dueAt ?? ''))
-      return send(res, 200, { items: filtered })
+      const view = url.searchParams.get('view')
+      const eisenhowerItems = view === 'eisenhower' ? filtered.filter((item) => item.kind !== 'milestone') : filtered
+      const counts = eisenhowerItems.reduce((result, item) => { const quadrant = item.kind === 'milestone' ? null : item.eisenhower?.quadrant; if (quadrant) result[quadrant] += 1; else result.unclassified += 1; return result }, { Q1: 0, Q2: 0, Q3: 0, Q4: 0, unclassified: 0 } as { Q1: number; Q2: number; Q3: number; Q4: number; unclassified: number })
+      return send(res, 200, view === 'eisenhower' ? { generatedAt: new Date().toISOString(), items: eisenhowerItems, counts } : { items: filtered })
     }
     if (req.method === 'POST' && url.pathname === '/api/operational-agenda/items') {
       const session = requireSession(req, res, ['operator', 'approver', 'admin']); if (!session) return
