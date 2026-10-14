@@ -30,7 +30,7 @@
     "@types/nodemailer": "^8.0.2",
     "@types/react": "latest",
     "@types/react-dom": "latest",
-    "concurrently": "^9.2.4",
+    "concurrently": "^10.0.6",
     "tsx": "latest"
   },
   "overrides": {
