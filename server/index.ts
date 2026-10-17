@@ -583,6 +583,18 @@ const server = createServer(async (req, res) => {
 
 validateProductionSecurityConfiguration()
 server.listen(port, host, () => console.log(`Dmente Synapse API: http://${host}:${port}`))
-startDailyProjectReportScheduler()
-process.on('SIGINT', () => { closeDatabase(); server.close(() => process.exit(0)) })
-process.on('SIGTERM', () => { closeDatabase(); server.close(() => process.exit(0)) })
+const stopDailyProjectReportScheduler = startDailyProjectReportScheduler()
+let shuttingDown = false
+function shutdown() {
+  if (shuttingDown) return
+  shuttingDown = true
+  const pendingReport = stopDailyProjectReportScheduler()
+  server.close(async (error) => {
+    await pendingReport
+    closeDatabase()
+    if (error) console.error('[Synapse API] Error al cerrar el servidor', error)
+    process.exit(error ? 1 : 0)
+  })
+}
+process.on('SIGINT', shutdown)
+process.on('SIGTERM', shutdown)

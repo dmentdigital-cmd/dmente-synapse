@@ -82,7 +82,18 @@ export async function tickDailyProjectReport(now = new Date()) {
 }
 
 export function startDailyProjectReportScheduler() {
-  void tickDailyProjectReport().catch(() => console.error('[Synapse] Falló la generación del informe diario'))
-  const timer = setInterval(() => { void tickDailyProjectReport().catch(() => console.error('[Synapse] Falló la generación del informe diario')) }, 60_000)
+  let activeTick: Promise<void> | null = null
+  const run = () => {
+    if (activeTick) return
+    activeTick = tickDailyProjectReport()
+      .catch(() => console.error('[Synapse] Falló la generación del informe diario'))
+      .finally(() => { activeTick = null })
+  }
+  run()
+  const timer = setInterval(run, 60_000)
   timer.unref()
+  return async () => {
+    clearInterval(timer)
+    await activeTick
+  }
 }

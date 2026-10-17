@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawn, type ChildProcess } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
+import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -63,7 +64,7 @@ before(async () => {
 after(async () => {
   db?.close()
   if (child && child.exitCode === null) await new Promise<void>((resolve) => { child.once('exit', resolve); child.kill() })
-  rmSync(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+  await rm(dataDir, { recursive: true, force: true, maxRetries: 30, retryDelay: 200 })
 })
 
 test('creates a normalized lead with configured routing and no CORS headers', async () => {
