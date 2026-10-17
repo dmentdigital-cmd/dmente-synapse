@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import type { CSSProperties } from 'react'
 import { Bell, CircleCheck, PauseCircle, Sparkles } from 'lucide-react'
 import { agents } from '../agents'
 import type { AgentId } from '../types'
@@ -6,18 +6,6 @@ import type { AgentId } from '../types'
 type Props = { activeAgent: AgentId; pending: Record<AgentId, boolean>; processing: Record<AgentId, boolean>; pendingCount: number; agendaItems: { agentId: AgentId; status: string; requiresApproval: boolean; approvalConfirmed: boolean; updatedAt: string }[]; setActiveAgent: (agent: AgentId) => void }
 
 export function OfficeStage({ activeAgent, pending, processing, pendingCount, agendaItems, setActiveAgent }: Props) {
-  const [interactingAgent, setInteractingAgent] = useState<AgentId | null>(null)
-  const interactionTimer = useRef<number | null>(null)
-  useEffect(() => () => { if (interactionTimer.current !== null) window.clearTimeout(interactionTimer.current) }, [])
-
-  function selectAgent(id: AgentId) {
-    if (interactionTimer.current !== null) window.clearTimeout(interactionTimer.current)
-    setInteractingAgent(null)
-    window.requestAnimationFrame(() => setInteractingAgent(id))
-    interactionTimer.current = window.setTimeout(() => setInteractingAgent(null), 700)
-    setActiveAgent(id)
-  }
-
   function motionFor(id: AgentId) {
     const tasks = agendaItems.filter((task) => task.agentId === id && task.status !== 'done' && task.status !== 'cancelled')
     if (processing[id] || tasks.some((task) => task.status === 'in_progress')) return 'working'
@@ -36,7 +24,7 @@ export function OfficeStage({ activeAgent, pending, processing, pendingCount, ag
       const motion = motionFor(id)
       const hasOpenTask = agendaItems.some((task) => task.agentId === id && task.status !== 'done' && task.status !== 'cancelled')
       const hasAlert = pending[id] || hasOpenTask
-      return <button key={id} type="button" data-motion={motion} data-interacting={interactingAgent === id} className={`agent-station station-${id} ${activeAgent === id ? 'selected' : ''}`} onClick={() => selectAgent(id)} aria-label={`Abrir chat de ${item.name}. Estado: ${stateLabels[motion]}${hasAlert ? '. Tiene una solicitud activa' : ''}`}>
+      return <button key={id} type="button" data-motion={motion} className={`agent-station station-${id} ${activeAgent === id ? 'selected' : ''}`} onClick={() => setActiveAgent(id)} aria-label={`Abrir chat de ${item.name}. Estado: ${stateLabels[motion]}${hasAlert ? '. Tiene una solicitud activa' : ''}`}>
       <img className="agent-sprite" src={hasAlert ? item.attention : item.normal} alt="" />
       <span className="agent-platform" style={{ '--agent-color': item.color } as CSSProperties} />
       <span className="station-name"><img src="/assets/dmente-synapse-icon.png" alt="" /><span><strong>{item.name}</strong><small>{item.role}</small></span></span>
