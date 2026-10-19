@@ -3,6 +3,7 @@ import { AlertTriangle, ArrowDownWideNarrow, CalendarClock, Check, CheckCheck, C
 import { agents } from '../agents'
 import type { AgendaItem } from '../main'
 import type { AgentId } from '../types'
+import { agendaQuadrant, quadrantLabels, type Quadrant } from '../eisenhower'
 
 type NewAgendaItem = { title: string; domain: string; projectId: string; agentId: AgentId; priority: ApiPriority; riskLevel: AgendaItem['riskLevel']; requiresApproval: boolean; startsAt: string; dueAt: string; nextAction: string }
 type ApiPriority = AgendaItem['priority']
@@ -10,8 +11,6 @@ type RescheduleMode = 'both' | 'start' | 'due'
 type RescheduleEdit = { item: AgendaItem; day: string; mode: RescheduleMode; busy: boolean }
 type Props = { items: AgendaItem[]; loadError: string; onCreate: (input: Omit<NewAgendaItem, 'startsAt' | 'dueAt'> & { startsAt: string | null; dueAt: string | null }) => Promise<void>; onEdit: (id: string, input: Record<string, unknown>) => Promise<void>; onDelete: (item: AgendaItem) => Promise<void>; onUpdateStatus: (id: string, status: AgendaItem['status'], comment: string) => Promise<void>; onApprove: (id: string) => Promise<void>; onClose: () => void }
 type View = 'today' | 'tomorrow' | 'week' | 'overdue' | 'calendar' | 'kanban' | 'eisenhower'
-type Quadrant = 'Q1' | 'Q2' | 'Q3' | 'Q4'
-const quadrantLabels: Record<Quadrant, { title: string; action: string; tone: string }> = { Q1: { title: 'Urgente + importante', action: 'Hacer hoy', tone: 'q1' }, Q2: { title: 'Importante, no urgente', action: 'Agendar', tone: 'q2' }, Q3: { title: 'Urgente, no importante', action: 'Delegar', tone: 'q3' }, Q4: { title: 'No urgente, no importante', action: 'Archivar', tone: 'q4' } }
 const statusLabels: Record<AgendaItem['status'], string> = { pending: 'Pendiente', in_progress: 'En progreso', waiting_approval: 'Esperando aprobación', blocked: 'Bloqueado', done: 'Hecho', cancelled: 'Cancelado' }
 const priorityLabels = { urgent: 'Urgente', high: 'Alta', normal: 'Normal', low: 'Baja' } as const
 const domainLabels: Record<string, string> = { family: 'Familia', health: 'Salud familiar', agency: 'Agencia', sales: 'Ventas', marketing: 'Marketing', technology: 'Técnico / producto', learning: 'Aprendizaje', projects: 'Proyectos', personal: 'Personal', education: 'Educación', church: 'Iglesia', wellbeing: 'Bienestar', finance: 'Finanzas', knowledge: 'Conocimiento', product: 'Producto', messaging: 'Mensajería', legal: 'Legal' }
@@ -101,7 +100,8 @@ function bogotaIso(day: string, time: string): string {
 }
 
 export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete, onUpdateStatus, onApprove, onClose }: Props) {
-  const [view, setView] = useState<View>('today')
+  const [view, setView] = useState<View>(() => agendaQuadrant(window.location.hash) ? 'eisenhower' : 'today')
+  const [quadrantFilter, setQuadrantFilter] = useState<Quadrant | 'all'>(() => agendaQuadrant(window.location.hash) ?? 'all')
   const [domain, setDomain] = useState('all')
   const [project, setProject] = useState('all')
   const [agent, setAgent] = useState('all')
@@ -193,7 +193,8 @@ export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete
       && (status === 'all' || (status === 'active' ? (view === 'kanban' ? item.status !== 'cancelled' : active) : item.status === status))
       && (!approvalOnly || (item.requiresApproval && !item.approvalConfirmed))
       && (sourceTopic === 'all' || item.eisenhower?.sourceTopic === sourceTopic)
-  }).sort((left, right) => (left.startsAt ?? left.dueAt ?? '').localeCompare(right.startsAt ?? right.dueAt ?? '')), [items, view, today, tomorrow, weekEnd, domain, project, agent, priority, status, approvalOnly, sourceTopic])
+      && (view !== 'eisenhower' || (item.kind !== 'milestone' && (quadrantFilter === 'all' || item.eisenhower?.quadrant === quadrantFilter)))
+  }).sort((left, right) => (left.startsAt ?? left.dueAt ?? '').localeCompare(right.startsAt ?? right.dueAt ?? '')), [items, view, today, tomorrow, weekEnd, domain, project, agent, priority, status, approvalOnly, sourceTopic, quadrantFilter])
 
   async function runAction(id: string, action: () => Promise<void>) {
     setBusyId(id)
@@ -302,6 +303,7 @@ export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete
     <div className="agenda-ribbon"><span className="agenda-ribbon-mark"><CheckCheck size={18} /></span><div><strong>Primero lo que necesita tu atención</strong><span>{counts.overdue ? `${counts.overdue} tareas atrasadas · ` : ''}{counts.approvals ? `${counts.approvals} esperando tu aprobación` : 'No hay aprobaciones pendientes'}</span></div><span className="agenda-date-label">{new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())}</span></div>
     <div className="agenda-toolbar"><div className="agenda-view-tabs" role="tablist" aria-label="Vistas de agenda">{viewOptions.map((option) => <button key={option.id} role="tab" aria-selected={view === option.id} className={view === option.id ? 'active' : ''} onClick={() => setView(option.id)}>{option.label}</button>)}</div><div className="agenda-toolbar-actions"><button className="agenda-new-task" onClick={() => openEditor(null)}><Plus size={15} />Nueva tarea</button><button className="agenda-close" onClick={onClose}><Check size={15} />Volver a oficina</button></div></div>
     <div className="agenda-filters"><span className="filters-label"><Filter size={14} />Filtrar</span>
+      {view === 'eisenhower' && <select aria-label="Filtrar por cuadrante" value={quadrantFilter} onChange={event => setQuadrantFilter(event.target.value as Quadrant | 'all')}><option value="all">Todos los cuadrantes</option>{(Object.keys(quadrantLabels) as Quadrant[]).map(quadrant => <option key={quadrant} value={quadrant}>{quadrant} · {quadrantLabels[quadrant].action}</option>)}</select>}
       <select aria-label="Filtrar por dominio" value={domain} onChange={(event) => setDomain(event.target.value)}><option value="all">Todos los dominios</option>{domains.map((item) => <option key={item} value={item}>{domainLabels[item] ?? item}</option>)}</select>
       <select aria-label="Filtrar por proyecto" value={project} onChange={(event) => setProject(event.target.value)}><option value="all">Todos los proyectos</option>{projects.map((item) => <option key={item} value={item}>{item}</option>)}</select>
       <select aria-label="Filtrar por agente" value={agent} onChange={(event) => setAgent(event.target.value)}><option value="all">Todos los agentes</option>{agentIds.map((id) => <option key={id} value={id}>{agentView(id).name}</option>)}</select>

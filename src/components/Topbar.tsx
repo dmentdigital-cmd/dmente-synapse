@@ -9,7 +9,7 @@ export function Topbar({ section, pendingCount, canViewLeads, canViewSecondBrain
     <div className="brand-lockup"><img className="brand-logo" src="/assets/dmente-synapse-icon.png" alt="Dmente Synapse" /><span className="brand-copy"><span>Dmente <b>Synapse</b></span><small className="release-stamp" title={`Compilada el ${buildDate}`}>v{__APP_VERSION__} · {buildDate}</small></span></div>
     <nav className="main-nav" aria-label="Navegación principal">
       <button type="button" className={section === 'office' ? 'nav-item active' : 'nav-item'} onClick={() => setSection('office')}><Home size={17} /> Oficina</button>
-      <button type="button" className={section === 'life' ? 'nav-item active' : 'nav-item'} onClick={() => setSection('life')}><Compass size={17} /> Mi vida</button>
+      <button type="button" className={section === 'life' ? 'nav-item active' : 'nav-item'} onClick={() => setSection('life')}><Compass size={17} /> Mi Dia</button>
       {canViewSecondBrain && <button type="button" className={section === 'second-brain' ? 'nav-item active' : 'nav-item'} onClick={() => setSection('second-brain')}><Brain size={17} /> Segundo cerebro</button>}
       <button type="button" className={section === 'agents' ? 'nav-item active' : 'nav-item'} onClick={() => setSection('agents')}><Sparkles size={17} /> Agentes</button>
       <button type="button" className={section === 'agenda' ? 'nav-item active' : 'nav-item'} onClick={() => setSection('agenda')}><CalendarDays size={17} /> Agenda</button>

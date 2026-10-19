@@ -8,6 +8,7 @@ export type BrainClient = {
   list: (params: URLSearchParams, signal: AbortSignal) => Promise<BrainCatalog>
   note: (path: string, signal: AbortSignal) => Promise<BrainNote>
   resolve: (target: string, from: string, signal: AbortSignal) => Promise<{ matches: BrainEntry[] }>
+  original?: (entry: BrainEntry, signal: AbortSignal) => Promise<File>
 }
 async function json<T>(url: string, signal: AbortSignal): Promise<T> {
   const response = await fetch(url, { signal, cache: 'no-store' })
@@ -38,7 +39,22 @@ function NoteText({ content }: { content: string }) {
   })}</div>
 }
 
-export function SecondBrainPanel({ onClose, api = client, preview = false }: { onClose: () => void; api?: BrainClient; preview?: boolean }) {
+function LocalOriginal({ entry, api }: { entry: BrainEntry; api: BrainClient }) {
+  const [url, setUrl] = useState('')
+  const [error, setError] = useState('')
+  useEffect(() => {
+    const controller = new AbortController(); let objectUrl = ''
+    setUrl(''); setError('')
+    void api.original!(entry, controller.signal).then(file => {
+      if (controller.signal.aborted) return
+      objectUrl = URL.createObjectURL(new Blob([file], { type: entry.extension === '.pdf' ? 'application/pdf' : 'application/octet-stream' })); setUrl(objectUrl)
+    }).catch(error => { if (!controller.signal.aborted) setError(error instanceof Error ? error.message : 'No se pudo abrir el original local.') })
+    return () => { controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl) }
+  }, [api, entry])
+  return error ? <p role="alert">{error}</p> : url ? <a href={url} target={entry.extension === '.pdf' ? '_blank' : undefined} rel="noreferrer" download={entry.extension === '.pdf' ? undefined : entry.path.split('/').pop()}>{entry.extension === '.pdf' ? 'Abrir PDF local' : 'Descargar original local'} <ExternalLink size={15} /></a> : <p role="status">Preparando el original local…</p>
+}
+
+export function SecondBrainPanel({ onClose, api = client, preview = false, localMode = false }: { onClose: () => void; api?: BrainClient; preview?: boolean; localMode?: boolean }) {
   const [status, setStatus] = useState<BrainStatus | null>(null)
   const [catalog, setCatalog] = useState<BrainCatalog | null>(null)
   const [loading, setLoading] = useState(true)
@@ -110,10 +126,10 @@ export function SecondBrainPanel({ onClose, api = client, preview = false }: { o
     <div className="brain-source-bar"><span><ShieldCheck size={15} /> Solo lectura · Administradores</span><span>Notas: {status?.available ? 'vault disponible' : 'pendiente de consulta'}</span><span>Originales: {status?.ebooksAvailable ? 'carpeta disponible' : status?.ebooksConfigured ? 'no disponible' : 'sin configurar'}</span></div>
     <div className="brain-controls"><form onSubmit={search}><Search size={17} /><label className="brain-sr-only" htmlFor="brain-search">Buscar en el segundo cerebro</label><input id="brain-search" type="search" value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Buscar en notas, índices y nombres de ebooks" maxLength={200} /><button type="submit" disabled={loading}>Buscar</button></form><button type="button" className="brain-refresh" onClick={reload} disabled={loading}><RefreshCw size={15} /> Actualizar</button></div>
     <div className="brain-kind-tabs" role="group" aria-label="Tipo de documento">{(['all', 'index', 'note', 'ebook'] as const).map((value) => <button key={value} type="button" aria-pressed={kind === value} onClick={() => { setKind(value); setOffset(0) }}>{value === 'all' ? 'Todos' : value === 'index' ? 'Índices' : value === 'note' ? 'Notas' : 'Ebooks'}{catalog && <span>{value === 'all' ? Object.values(catalog.counts).reduce((sum, count) => sum + count, 0) : catalog.counts[value]}</span>}</button>)}</div>
-    {error ? <div className="brain-state" role="alert"><FolderOpen size={30} /><h2>No se pudo consultar el segundo cerebro</h2><p>{error}</p><button type="button" onClick={reload}>Reintentar</button></div> : <div className="brain-layout">
+    {error ? <div className="brain-state" role="alert"><FolderOpen size={30} /><h2>No se pudo consultar el segundo cerebro</h2><p>{error}</p>{!localMode && <p>Puedes consultar tus archivos sin configurar el servidor: selecciona «Este equipo» y elige las carpetas locales.</p>}<button type="button" onClick={reload}>Reintentar</button></div> : <div className="brain-layout">
       <section className="brain-catalog" aria-label="Archivos del segundo cerebro" aria-busy={loading}>
         <div className="brain-catalog-heading"><strong>{loading ? 'Consultando las fuentes…' : `${catalog?.total ?? 0} resultados${query ? ` para «${query}»` : ''}`}</strong><small>Contenido en notas · Nombre en ebooks</small></div>
-        {loading ? <div className="brain-state" role="status"><LoaderCircle size={26} /><p>Leyendo el catálogo. Los originales permanecen en sus carpetas.</p></div> : catalog?.items.length ? <ul className="brain-file-list">{catalog.items.map((entry) => <li key={entry.id}><button type="button" onClick={() => void openEntry(entry)} className={selected?.id === entry.id ? 'is-selected' : ''} aria-pressed={selected?.id === entry.id}>{entry.kind === 'ebook' ? <BookOpen size={21} /> : <FileText size={21} />}<span><strong>{entry.title}</strong><span>{labels[entry.kind]} · {entry.extension.slice(1).toUpperCase()} · {byteLabel(entry.bytes)}</span><small>{entry.source === 'ebooks' ? 'EBOOKS' : 'Vault'} / {entry.path}</small>{entry.snippet && <p>{entry.snippet}</p>}</span><ArrowRight size={15} /></button></li>)}</ul> : <div className="brain-state"><Search size={28} /><h2>Sin coincidencias</h2><p>Prueba otro término o tipo de documento. La búsqueda no extrae texto de PDF o EPUB.</p></div>}
+        {loading ? <div className="brain-state" role="status"><LoaderCircle size={26} /><p>Leyendo el catálogo. Los originales permanecen en sus carpetas.</p></div> : catalog?.items.length ? <ul className="brain-file-list">{catalog.items.map((entry) => <li key={entry.id}><button type="button" onClick={() => void openEntry(entry)} className={selected?.id === entry.id ? 'is-selected' : ''} aria-pressed={selected?.id === entry.id}>{entry.kind === 'ebook' ? <BookOpen size={21} /> : <FileText size={21} />}<span><strong>{entry.title}</strong><span>{labels[entry.kind]} · {entry.extension.slice(1).toUpperCase()} · {byteLabel(entry.bytes)}</span><small>{entry.source === 'ebooks' ? 'EBOOKS' : 'Vault'} / {entry.path}</small>{entry.snippet && <p>{entry.snippet}</p>}</span><ArrowRight size={15} /></button></li>)}</ul> : <div className="brain-state"><Search size={28} /><h2>{localMode && !status?.configured ? 'Elige tus carpetas locales' : 'Sin coincidencias'}</h2><p>{localMode && !status?.configured ? 'Usa los botones superiores para elegir tu vault y la carpeta de originales. El navegador pedirá permiso de lectura.' : 'Prueba otro término o tipo de documento. La búsqueda no extrae texto de PDF o EPUB.'}</p></div>}
         {catalog && !loading && <div className="brain-pagination"><button type="button" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 40))}><ArrowLeft size={15} /> Anterior</button><span>{catalog.total ? `${offset + 1} a ${Math.min(offset + 40, catalog.total)} de ${catalog.total}` : '0 resultados'}</span><button type="button" disabled={offset + 40 >= catalog.total} onClick={() => setOffset(offset + 40)}>Siguiente <ArrowRight size={15} /></button></div>}
       </section>
       <section className="brain-reader" ref={reader} tabIndex={-1} aria-label="Lectura del documento">
@@ -124,7 +140,7 @@ export function SecondBrainPanel({ onClose, api = client, preview = false }: { o
             {raw ? <pre className="brain-markdown-source">{note.content}</pre> : <NoteText content={note.content} />}
             {note.links.length > 0 && <section className="brain-note-links"><h3><Link2 size={16} /> Enlaces de la nota</h3><p>Busca el destino dentro del vault y la carpeta de ebooks configurada.</p><ul>{note.links.map((link) => <li key={link.target}><button type="button" onClick={() => void resolveLink(link.target)} disabled={linkBusy}>{link.label}<ArrowRight size={14} /></button></li>)}</ul></section>}
             <p className="brain-device-note">Abrir en Obsidian requiere que ese vault esté disponible en tu dispositivo.</p>
-          </> : <div className="brain-book-detail"><BookOpen size={48} /><p>Original {selected.extension.slice(1).toUpperCase()} · {byteLabel(selected.bytes)}</p><p>El archivo se sirve desde su carpeta. Synapse no extrae ni modifica su contenido.</p>{preview ? <p>La apertura del original requiere una sesión real de administrador.</p> : <a href={fileUrl(selected)} target="_blank" rel="noreferrer">{selected.extension === '.pdf' ? 'Abrir PDF' : 'Descargar original'} <ExternalLink size={15} /></a>}</div>}
+          </> : <div className="brain-book-detail"><BookOpen size={48} /><p>Original {selected.extension.slice(1).toUpperCase()} · {byteLabel(selected.bytes)}</p><p>{localMode ? 'El original se abre desde este equipo, sin enviarlo al servidor.' : 'El archivo se sirve desde su carpeta. Synapse no extrae ni modifica su contenido.'}</p>{preview ? <p>La apertura del original requiere una sesión real de administrador.</p> : api.original ? <LocalOriginal key={selected.id} entry={selected} api={api} /> : <a href={fileUrl(selected)} target="_blank" rel="noreferrer">{selected.extension === '.pdf' ? 'Abrir PDF' : 'Descargar original'} <ExternalLink size={15} /></a>}</div>}
           {(linkBusy || linkMessage) && <p className="brain-link-message" role="status">{linkBusy ? 'Buscando el archivo enlazado…' : linkMessage}</p>}
           {matches.length > 0 && <ul className="brain-resolve-list">{matches.map((entry) => <li key={entry.id}><button type="button" onClick={() => void openEntry(entry)}><strong>{entry.title}</strong><small>{entry.source} / {entry.path}</small></button></li>)}</ul>}
         </>}

@@ -3,8 +3,10 @@ import { Activity, ArrowLeft, ArrowRight, BookOpen, Brain, CalendarDays, Check, 
 import type { AgendaItem } from '../../main'
 import { buildLifeReview, dayKey, domainLabels, isOverdue, LIFE_ZONE, lifeStatuses, shiftDay, statusInfo, type LifeStatus } from './model'
 import './life-dashboard.css'
+import { EisenhowerPanel } from './EisenhowerPanel'
+import type { Quadrant } from '../../eisenhower'
 
-type Props = { items: AgendaItem[]; loading: boolean; loadError: string; onOpenAgenda: () => void; onClose: () => void; previewMode?: boolean }
+type Props = { items: AgendaItem[]; loading: boolean; loadError: string; onOpenAgenda: () => void; onOpenEisenhower?: (quadrant: Quadrant) => void; onClose: () => void; previewMode?: boolean }
 type ModuleId = 'knowledge' | 'brand' | 'library'
 const modules = {
   knowledge: { title: 'Segundo cerebro', icon: Brain, description: 'Lectura de notas e índices del vault Obsidian y originales de EBOOKS. Acceso reservado a administradores.' },
@@ -44,7 +46,7 @@ function StateMap({ counts, selected, onSelect }: { counts: Record<LifeStatus, n
   </div>
 }
 
-export function LifeDashboardPanel({ items, loading, loadError, onOpenAgenda, onClose, previewMode = false }: Props) {
+export function LifeDashboardPanel({ items, loading, loadError, onOpenAgenda, onOpenEisenhower, onClose, previewMode = false }: Props) {
   const [tab, setTab] = useState<'day' | 'review'>('day')
   const [now, setNow] = useState(() => new Date())
   const today = dayKey(now)!
@@ -82,10 +84,11 @@ export function LifeDashboardPanel({ items, loading, loadError, onOpenAgenda, on
 
   return <section className="life-panel" aria-labelledby="life-title">
     {previewMode && <div className="life-preview-notice" role="note">Vista de prueba. Los registros de esta página son ficticios; no hay cuentas conectadas.</div>}
-    <header className="life-heading"><div className="life-heading-title"><span className="life-brand-symbol"><Compass size={27} /></span><div><h1 id="life-title">Panel de Vida<span>.</span></h1><p>Tu día, en perspectiva.</p></div></div><div className="life-heading-actions"><span><Clock3 size={14} /> Bogotá · {new Intl.DateTimeFormat('es-CO', { timeZone: LIFE_ZONE, hour: '2-digit', minute: '2-digit' }).format(now)}</span><button type="button" onClick={onClose} aria-label="Cerrar Panel de Vida"><X size={19} /></button></div></header>
-    <div className="life-workspace-bar"><div className="life-tabs" role="group" aria-label="Vista del Panel de Vida"><button type="button" aria-pressed={tab === 'day'} onClick={() => setTab('day')}><CalendarDays size={17} /> Mi día</button><button type="button" aria-pressed={tab === 'review'} onClick={() => setTab('review')}><Activity size={17} /> Revisión</button></div><label className="life-domain-filter"><Filter size={14} /><span className="life-sr-only">Ámbito</span><select value={domain} onChange={(event) => { setDomain(event.target.value); setSelectedId(null) }}><option value="all">Todos los ámbitos</option>{domains.map((value) => <option key={value} value={value}>{domainLabels[value] ?? value}</option>)}</select></label><label className="life-search"><Search size={16} /><span className="life-sr-only">Buscar registros</span><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar en tus registros" /></label></div>
+    <header className="life-heading"><div className="life-heading-title"><span className="life-brand-symbol"><Compass size={27} /></span><div><h1 id="life-title">Panel Diario<span>.</span></h1><p>Tu día, en perspectiva.</p></div></div><div className="life-heading-actions"><span><Clock3 size={14} /> Bogotá · {new Intl.DateTimeFormat('es-CO', { timeZone: LIFE_ZONE, hour: '2-digit', minute: '2-digit' }).format(now)}</span><button type="button" onClick={onClose} aria-label="Cerrar Panel Diario"><X size={19} /></button></div></header>
+    <div className="life-workspace-bar"><div className="life-tabs" role="group" aria-label="Vista del Panel Diario"><button type="button" aria-pressed={tab === 'day'} onClick={() => setTab('day')}><CalendarDays size={17} /> Mi día</button><button type="button" aria-pressed={tab === 'review'} onClick={() => setTab('review')}><Activity size={17} /> Revisión</button></div><label className="life-domain-filter"><Filter size={14} /><span className="life-sr-only">Ámbito</span><select value={domain} onChange={(event) => { setDomain(event.target.value); setSelectedId(null) }}><option value="all">Todos los ámbitos</option>{domains.map((value) => <option key={value} value={value}>{domainLabels[value] ?? value}</option>)}</select></label><label className="life-search"><Search size={16} /><span className="life-sr-only">Buscar registros</span><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar en tus registros" /></label></div>
     {loadError ? <div className="life-load-state" role="alert"><ShieldAlert size={32} /><h2>No se pudo actualizar el panel</h2><p>{loadError}</p><p>Los datos no están disponibles para esta revisión.</p><button type="button" onClick={() => window.location.reload()}>Volver a cargar</button></div> : loading ? <div className="life-load-state" role="status"><Layers3 size={32} /><h2>Cargando tu actividad</h2><p>Consultando los registros autorizados de la agenda.</p></div> : <>
       <div className="life-summary-strip"><span><i className="life-color-dot" style={{ '--state-color': '#64d9ff' } as CSSProperties} /><strong>{review.open}</strong> abiertos</span><button type="button" onClick={() => chooseStatus('blocked')}><ShieldAlert size={15} /><strong>{review.counts.blocked}</strong> bloqueos</button><span className={review.overdue ? 'life-overdue' : ''}><Clock3 size={15} /><strong>{review.overdue}</strong> vencidos</span><span className="life-source">Agenda Synapse · Estado actual</span></div>
+      {tab === 'day' && onOpenEisenhower && <EisenhowerPanel items={review.scope.filter(matches)} onManage={onOpenEisenhower} />}
       {tab === 'day' ? <div className="life-day-grid">
         <section className="life-day-agenda"><div className="life-section-heading"><div><h2>{selectedDay === today ? 'Tu agenda de hoy' : 'Tu agenda'}</h2><p>{formatDay(selectedDay, true)}</p></div><div className="life-day-controls"><button type="button" aria-label="Día anterior" onClick={() => setSelectedDay(shiftDay(selectedDay, -1))}><ArrowLeft size={16} /></button><button type="button" onClick={() => setSelectedDay(today)}>Hoy</button><button type="button" aria-label="Día siguiente" onClick={() => setSelectedDay(shiftDay(selectedDay, 1))}><ArrowRight size={16} /></button></div></div>
           <label className="life-date-picker">Elegir fecha<input type="date" value={selectedDay} onChange={(event) => { if (dayKey(event.target.value)) setSelectedDay(event.target.value) }} /></label>

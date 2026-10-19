@@ -222,3 +222,15 @@
   .life-state-legend button { font-size: 12px; padding: 13px 8px; }
   .life-review-records > .life-section-heading { flex-wrap: wrap; }
 }
+.daily-eisenhower { margin:26px 0 32px; padding:26px 0; border-top:1px solid #294b5b; border-bottom:1px solid #294b5b; }
+.daily-eisenhower h2 { display:flex; gap:10px; align-items:center; }
+.daily-matrix-source { color:#b0c6d6; font-size:11px; }
+.daily-matrix-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-top:20px; }
+.daily-quadrant { --quadrant:#64d9ff; display:grid; gap:10px; min-width:0; padding:18px 20px; border:1px solid #294b5b; border-radius:12px; color:#edf5fc; background:#0b202c; text-align:left; }
+.daily-quadrant.q1 { --quadrant:#ffadbc; }.daily-quadrant.q2 { --quadrant:#65edcf; }.daily-quadrant.q3 { --quadrant:#ffe0ac; }.daily-quadrant.q4 { --quadrant:#b5c4e0; }
+.daily-quadrant[aria-pressed=true],.daily-quadrant:hover { border-color:var(--quadrant); background:#123241; }
+.daily-quadrant-top { display:flex; gap:10px; align-items:center; color:var(--quadrant); }.daily-quadrant-top > span { flex:1; font-size:12px; }.daily-quadrant-top > strong { font-size:19px; }
+.daily-quadrant-title { font-size:14px; font-weight:550; line-height:1.5; }.daily-quadrant-count { color:#b0c6d6; font-size:12px; font-variant-numeric:tabular-nums; }
+.daily-matrix-results { margin-top:22px; }.daily-matrix-results > div { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; }.daily-matrix-results h3 { margin:0; font-size:15px; }.daily-matrix-results button { display:flex; align-items:center; gap:8px; border:0; padding:7px 0; background:transparent; color:#64d9ff; font-size:12px; }
+.daily-matrix-results ul { padding:0; margin:10px 0 0; list-style:none; }.daily-matrix-results li { display:grid; gap:6px; padding:13px 0; border-bottom:1px solid #294b5b; overflow-wrap:anywhere; }.daily-matrix-results li strong { font-size:13px; font-weight:550; }.daily-matrix-results li span,.daily-matrix-results li small,.daily-matrix-results > p,.daily-matrix-note { color:#b0c6d6; font-size:12px; line-height:1.65; }.daily-matrix-note { margin-top:16px !important; }
+@media(max-width:550px) { .daily-matrix-grid { grid-template-columns:minmax(0,1fr); }.daily-quadrant { padding:16px; }.daily-eisenhower > .life-section-heading { flex-wrap:wrap; } }
