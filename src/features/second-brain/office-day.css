@@ -1,0 +1,18 @@
+.office-day-panel { max-width:1540px; margin:0 auto 24px; padding:23px 25px; border:1px solid #294b5b; border-radius:14px; background:#081923; color:#edf5fc; }
+.office-day-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:20px; }
+.office-day-heading h1 { margin:0; font-size:23px; line-height:1.25; font-weight:550; letter-spacing:-.025em; }
+.office-day-heading p { display:flex; align-items:center; gap:7px; margin:7px 0 0; color:#b0c6d6; font-size:12px; }
+.office-day-actions { display:flex; flex-wrap:wrap; gap:9px; }
+.office-day-actions button { display:flex; align-items:center; gap:7px; padding:10px 13px; border:1px solid #426579; border-radius:8px; background:transparent; color:#c8e5f3; font-size:12px; }
+.office-day-actions .office-brain-action { border-color:#416b7e; background:#133345; color:#64d9ff; }
+.office-day-actions button:hover { background:#1a3b4c; }
+.office-day-items { border-top:1px solid #294b5b; padding-top:15px; margin-top:19px; }
+.office-day-items > p { color:#b0c6d6; font-size:12px; line-height:1.6; margin:0; }
+.office-day-items ul { display:flex; flex-wrap:wrap; gap:8px 20px; padding:0; margin:13px 0 0; list-style:none; }
+.office-day-items li { min-width:0; max-width:100%; }
+.office-day-items li button { display:flex; align-items:center; gap:10px; padding:5px 0; border:0; background:transparent; color:#edf5fc; font-size:12px; text-align:left; overflow-wrap:anywhere; }
+.office-day-items li svg { flex-shrink:0; color:#64d9ff; }
+.life-brain-launch { display:flex; flex-wrap:wrap; align-items:center; gap:10px 15px; margin:0 0 20px; padding:14px 0; border-top:1px solid #294b5b; border-bottom:1px solid #294b5b; }
+.life-brain-launch span { color:#b0c6d6; font-size:12px; }
+.life-brain-launch button { display:flex; align-items:center; gap:8px; padding:10px 13px; border:1px solid #426579; border-radius:8px; background:#133345; color:#64d9ff; font-size:12px; }
+@media(max-width:620px) { .office-day-panel { padding:20px 17px; } .office-day-heading p { align-items:flex-start; font-size:11px; } .office-day-heading p > svg { flex-shrink:0; margin-top:1px; } .office-day-items ul { flex-direction:column; } }

@@ -25,8 +25,8 @@ button { cursor: pointer; }
 .brand-copy { display: grid; gap: 2px; }.release-stamp { color: rgba(188,255,246,.8); font-size: 9px; font-weight: 700; letter-spacing: .01em; }
 .brand-lockup b { color: var(--teal); font-weight: 800; }
 .brand-logo { width: 42px; height: 42px; border-radius: 11px; object-fit: cover; box-shadow: 0 0 20px rgba(43, 235, 210, .3); }
-.main-nav { display: flex; align-items: center; gap: 5px; height: 100%; flex: 1; }
-.nav-item { display: inline-flex; align-items: center; gap: 9px; height: 39px; padding: 0 14px; border: 0; border-radius: 9px; color: rgba(248, 250, 252,.8); background: transparent; font-size: 13px; font-weight: 600; transition: .18s ease; }
+.main-nav { display: flex; align-items: center; gap: 5px; height: 100%; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
+.nav-item { display: inline-flex; flex-shrink: 0; align-items: center; gap: 9px; height: 39px; padding: 0 14px; border: 0; border-radius: 9px; color: rgba(248, 250, 252,.8); background: transparent; font-size: 13px; font-weight: 600; transition: .18s ease; }
 .nav-item:hover, .nav-item.active { color: var(--teal); background: rgba(129, 140, 248, .12); }
 .nav-count { display: grid; place-items: center; min-width: 19px; height: 19px; border-radius: 50%; color: #fff; background: #dd7c57; font-size: 11px; }
 .add-agent { display: inline-flex; align-items: center; gap: 8px; border: 0; border-radius: 9px; padding: 11px 15px; color: #061421; background: var(--teal); font-size: 13px; font-weight: 800; box-shadow: 0 5px 20px rgba(43, 235, 210, .18); }

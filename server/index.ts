@@ -17,6 +17,7 @@ import { agendaMilestoneItems } from './projects.js'
 import { handleProjectRoutes } from './project-routes.js'
 import { startDailyProjectReportScheduler } from './daily-project-report.js'
 import { inferQuadrant } from './eisenhower.js'
+import { handleSecondBrainRoutes } from './second-brain-routes.js'
 
 const port = Number(process.env.PORT ?? 3010)
 const host = process.env.SYNAPSE_HOST ?? '127.0.0.1'
@@ -134,6 +135,7 @@ const server = createServer(async (req, res) => {
     }
     if (url.pathname.startsWith('/api/') && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method ?? '') && !sameOriginMutation(req)) return send(res, 403, { error: 'Origen de solicitud no permitido.' })
     if (url.pathname === '/mcp') return handleMcp(req, res)
+    if (await handleSecondBrainRoutes(req, res, url, { send, requireSession })) return
     if (/^\/api\/(projects|clients|project-digest|project-daily-report)(\/|$)/.test(url.pathname) && await handleProjectRoutes(req, res, url, { send, requireSession, inDomain })) return
     if (req.method === 'GET' && url.pathname === '/api/leads') {
       const session = requireSession(req, res); if (!session) return

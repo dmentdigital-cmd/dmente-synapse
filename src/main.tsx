@@ -13,11 +13,17 @@ import { RequestsPanel } from './components/RequestsPanel'
 import { RequestsErrorBoundary } from './components/RequestsErrorBoundary'
 import { SettingsPanel } from './components/SettingsPanel'
 import { Topbar } from './components/Topbar'
+import { LifeDashboardErrorBoundary } from './features/life-dashboard/LifeDashboardErrorBoundary'
+import { SecondBrainErrorBoundary } from './features/second-brain/SecondBrainErrorBoundary'
+import { OfficeDayPanel } from './features/second-brain/OfficeDayPanel'
+import './features/second-brain/office-day.css'
 import type { AgentId, Message, Section } from './types'
 import './styles.css'
 
 const LeadsPanel = lazy(() => import('./components/LeadsPanel').then((module) => ({ default: module.LeadsPanel })))
 const ProjectsPanel = lazy(() => import('./components/ProjectsPanel').then((module) => ({ default: module.ProjectsPanel })))
+const LifeDashboardPanel = lazy(() => import('./features/life-dashboard/LifeDashboardPanel').then((module) => ({ default: module.LifeDashboardPanel })))
+const SecondBrainPanel = lazy(() => import('./features/second-brain/SecondBrainPanel').then((module) => ({ default: module.SecondBrainPanel })))
 
 type ApiMessage = { id: string; direction: 'user' | 'agent'; text: string; createdAt: string }
 export type ApiRequest = { id: string; agentId: AgentId; title: string; domain: string; projectId: string | null; priority: 'low' | 'normal' | 'high' | 'urgent'; status: 'pending' | 'in_progress' | 'waiting_approval' | 'blocked' | 'done' | 'cancelled'; riskLevel: 'low' | 'medium' | 'high'; requiresApproval: boolean; approvalConfirmed: boolean; startsAt: string | null; dueAt: string | null; nextAction: string; obsidianNote?: string | null; sourcePath: string | null; sourceDriveFolder: string | null; eisenhower: { quadrant: 'Q1' | 'Q2' | 'Q3' | 'Q4' | null; urgency: 'low' | 'medium' | 'high' | null; importance: 'low' | 'medium' | 'high' | null; urgencyReason: string | null; importanceReason: string | null; sourceTopic: string | null } }
@@ -79,6 +85,7 @@ function App({ onLogout, role, userId, domains, mfaEnabled, mfaManaged, mfaEnrol
   const [updateAvailable, setUpdateAvailable] = useState(false)
   const agent = agents[activeAgent]
   const canViewLeads = !mfaEnrollmentRequired && (role === 'admin' || Boolean(domains?.includes('sales')))
+  const canViewSecondBrain = !mfaEnrollmentRequired && role === 'admin'
   const pendingCount = Object.values(pending).filter(Boolean).length
   const orderedAgents = useMemo(() => Object.entries(agents) as [AgentId, typeof agents[AgentId]][], [])
   // Project milestones show in the Agenda only; the office keeps reacting to tasks alone.
@@ -227,12 +234,15 @@ function App({ onLogout, role, userId, domains, mfaEnabled, mfaManaged, mfaEnrol
   }
 
   return <div className="app-shell">
-    <Topbar section={section} pendingCount={pendingCount} canViewLeads={canViewLeads} setSection={openSection} setActiveAgent={setActiveAgent} onAddAgent={() => setAddAgentOpen(true)} onLogout={onLogout} />
+    <Topbar section={section} pendingCount={pendingCount} canViewLeads={canViewLeads} canViewSecondBrain={canViewSecondBrain} setSection={openSection} setActiveAgent={setActiveAgent} onAddAgent={() => setAddAgentOpen(true)} onLogout={onLogout} />
     {updateAvailable && <div className="update-notice" role="status"><span>Hay una versión más reciente de Synapse.</span><button type="button" onClick={() => window.location.reload()}>Actualizar ahora</button></div>}
     <main className="workspace">
-      {section === 'leads' && canViewLeads ? <Suspense fallback={<div className="leads-empty" role="status">Cargando vista de leads...</div>}><LeadsPanel onClose={() => openSection('office')} /></Suspense> : section === 'projects' && !mfaEnrollmentRequired ? <ProjectsErrorBoundary onClose={() => openSection('office')}><Suspense fallback={<div className="leads-empty" role="status">Cargando proyectos...</div>}><ProjectsPanel role={role} onClose={() => openSection('office')} /></Suspense></ProjectsErrorBoundary> : section === 'agenda' ? <AgendaErrorBoundary onClose={() => openSection('office')}><OperationalAgenda items={agendaItems} loadError={apiError} onCreate={createAgendaItem} onEdit={editAgendaItem} onDelete={deleteAgendaItem} onUpdateStatus={updateAgendaStatus} onApprove={approveAgendaItem} onClose={() => openSection('office')} /></AgendaErrorBoundary> : <>
+      {section === 'second-brain' ? canViewSecondBrain ? <SecondBrainErrorBoundary onClose={() => openSection('office')}><Suspense fallback={<div className="leads-empty" role="status">Cargando segundo cerebro…</div>}><SecondBrainPanel onClose={() => openSection('office')} /></Suspense></SecondBrainErrorBoundary> : <section className="operational-agenda" role="alert"><h1>Acceso reservado a administradores</h1><p>El segundo cerebro no está disponible para esta sesión.</p><button type="button" className="agenda-close" onClick={() => openSection('office')}>Volver a la oficina</button></section> : <>
+      {section === 'life' && !mfaEnrollmentRequired ? <LifeDashboardErrorBoundary onClose={() => openSection('office')}><Suspense fallback={<div className="leads-empty" role="status">Cargando Panel de Vida...</div>}><LifeDashboardPanel items={agendaItems} loading={!apiReady && !apiError} loadError={apiError} onOpenAgenda={() => openSection('agenda')} onClose={() => openSection('office')} /></Suspense></LifeDashboardErrorBoundary> : section === 'leads' && canViewLeads ? <Suspense fallback={<div className="leads-empty" role="status">Cargando vista de leads...</div>}><LeadsPanel onClose={() => openSection('office')} /></Suspense> : section === 'projects' && !mfaEnrollmentRequired ? <ProjectsErrorBoundary onClose={() => openSection('office')}><Suspense fallback={<div className="leads-empty" role="status">Cargando proyectos...</div>}><ProjectsPanel role={role} onClose={() => openSection('office')} /></Suspense></ProjectsErrorBoundary> : section === 'agenda' ? <AgendaErrorBoundary onClose={() => openSection('office')}><OperationalAgenda items={agendaItems} loadError={apiError} onCreate={createAgendaItem} onEdit={editAgendaItem} onDelete={deleteAgendaItem} onUpdateStatus={updateAgendaStatus} onApprove={approveAgendaItem} onClose={() => openSection('office')} /></AgendaErrorBoundary> : <>
+        {section === 'office' && !mfaEnrollmentRequired && <OfficeDayPanel items={agendaItems} loading={!apiReady && !apiError} loadError={apiError} onOpenAgenda={() => openSection('agenda')} onOpenSecondBrain={canViewSecondBrain ? () => openSection('second-brain') : undefined} />}
         <OfficeStage activeAgent={activeAgent} pending={pending} processing={processing} pendingCount={pendingCount} agendaItems={officeItems} setActiveAgent={setActiveAgent} />
         {section === 'agents' ? <AgentsPanel setActiveAgent={setActiveAgent} close={() => openSection('office')} /> : section === 'requests' ? <RequestsErrorBoundary onClose={() => openSection('office')}><RequestsPanel requests={requests} setActiveAgent={setActiveAgent} close={() => openSection('office')} /></RequestsErrorBoundary> : section === 'settings' ? <SettingsPanel onLogout={onLogout} installed={installed} canInstall={Boolean(installPrompt)} onInstall={() => void installApp()} role={mfaEnrollmentRequired ? undefined : role} userId={userId} mfaEnabled={mfaEnabled} mfaManaged={mfaManaged} /> : chatMinimized ? <ChatDock agent={agent} pending={pending[activeAgent]} restore={() => setChatMinimized(false)} /> : <ChatPanel agent={agent} messages={messages[activeAgent] as Message[]} pending={pending[activeAgent]} processing={processing[activeAgent]} apiReady={apiReady} draft={draft} setDraft={setDraft} sendMessage={sendMessage} minimize={() => setChatMinimized(true)} togglePending={() => setPending((current) => ({ ...current, [activeAgent]: !current[activeAgent] }))} />}
+      </>}
       </>}
     </main>
     <footer className="app-footer"><img src="/assets/logo-dmente.png" alt="" /><span>Dmente Digital · Titular indicada: Tania Alvarado garcia · Cartagena, Colombia · <a href="tel:+573218346407">+57 321 834 6407</a></span><nav className="legal-links" aria-label="Información legal"><a href="/legal/privacidad.html">Privacidad</a><a href="/legal/terminos.html">Términos</a><a href="/legal/cookies.html">Cookies</a><a href="mailto:info@dmentedigital.co">info@dmentedigital.co</a></nav></footer>
@@ -255,7 +265,7 @@ if ('serviceWorker' in navigator) {
 function sectionFromHash(hash: string): Section {
   const section = hash.replace(/^#/, '')
   if (section === 'projects' || section.startsWith('projects/')) return 'projects'
-  return section === 'agents' || section === 'requests' || section === 'agenda' || section === 'leads' || section === 'settings' ? section : 'office'
+  return section === 'second-brain' || section === 'life' || section === 'agents' || section === 'requests' || section === 'agenda' || section === 'leads' || section === 'settings' ? section : 'office'
 }
 
 type BeforeInstallPromptEvent = Event & {
