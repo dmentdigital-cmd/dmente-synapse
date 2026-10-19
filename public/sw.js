@@ -29,7 +29,7 @@ self.addEventListener('fetch', (event) => {
     return
   }
   if (request.mode === 'navigate') {
-    event.respondWith(fetch(request).then(async (response) => {
+    event.respondWith(fetch(request, { cache: 'no-store' }).then(async (response) => {
       if (response.ok && response.headers.get('Content-Type')?.includes('text/html')) {
         const copy = response.clone()
         try { await (await caches.open(CACHE_NAME)).put('/', copy) } catch { /* Storage limits must not block the network response. */ }

@@ -102,15 +102,16 @@ test('service worker only removes its old shell caches and handles offline start
 test('recovery starts independently of React, reloads at most once, and leaves mounted UI alone', async () => {
   const callbacks = new Map<string, (...args: any[]) => void>()
   const storage = new Map<string, string>(); const deleted: string[] = []
-  let mounted = false; let reloads = 0
+  let mounted = false; let reloads = 0; let brokenCache = false; let stuckUpdate = false
+  const destinations: string[] = []
   const root = { children: [{}], querySelector: () => mounted ? null : {}, replaceChildren: () => undefined }
   const element = () => ({ style: {}, setAttribute() {}, addEventListener() {}, append() {}, textContent: '' })
-  const window = { addEventListener: (name: string, callback: (...args: any[]) => void) => callbacks.set(name, callback), setTimeout: (callback: () => void) => { callbacks.set('timeout', callback) }, location: { reload: () => { reloads++ } }, caches: {} }
+  const window = { addEventListener: (name: string, callback: (...args: any[]) => void) => callbacks.set(name, callback), setTimeout: (callback: () => void, delay: number) => { if (delay === 10000) { callbacks.set('timeout', callback); return 0 } return setTimeout(callback, 1) }, clearTimeout, location: { href: 'https://synapse.test/?previous=1#second-brain', replace: (url: string) => { reloads++; destinations.push(url) } }, caches: {} }
   let scriptUrl = ''
   vm.runInNewContext(await readFile('public/startup.js', 'utf8'), {
-    window, document: { getElementById: () => root, createElement: element }, HTMLScriptElement: class {},
-    navigator: { serviceWorker: { addEventListener: (name: string, callback: (...args: any[]) => void) => callbacks.set(name, callback), register: async (url: string) => { scriptUrl = url; return { update: async () => undefined } }, getRegistration: async () => ({ update: async () => undefined }) } },
-    caches: { keys: async () => ['dmente-synapse-shell-v5', 'other-app'], delete: async (name: string) => { deleted.push(name); return true } },
+    URL, window, document: { getElementById: () => root, createElement: element }, HTMLScriptElement: class {},
+    navigator: { serviceWorker: { addEventListener: (name: string, callback: (...args: any[]) => void) => callbacks.set(name, callback), register: async (url: string) => { scriptUrl = url; return { update: async () => undefined } }, getRegistration: async () => ({ update: () => stuckUpdate ? new Promise(() => {}) : Promise.resolve() }) } },
+    caches: { keys: async () => { if (brokenCache) throw new Error('storage unavailable'); return ['dmente-synapse-shell-v5', 'other-app'] }, delete: async (name: string) => { deleted.push(name); return true } },
     sessionStorage: { getItem: (name: string) => storage.get(name), setItem: (name: string, value: string) => storage.set(name, value) },
   })
   assert.equal(scriptUrl, '/sw.js?v=4')
@@ -125,4 +126,15 @@ test('recovery starts independently of React, reloads at most once, and leaves m
   await new Promise(resolve => setImmediate(resolve))
   assert.deepEqual(deleted, ['dmente-synapse-shell-v5'])
   assert.equal(reloads, 1)
+  assert.equal(new URL(destinations[0]).hash, '#second-brain')
+  assert.ok(new URL(destinations[0]).searchParams.has('synapse-refresh'))
+  mounted = true; brokenCache = true; stuckUpdate = true
+  const button = { disabled: false, textContent: '' }
+  let intercepted = false
+  callbacks.get('click')!({ target: { closest: () => button }, preventDefault() {}, stopImmediatePropagation() { intercepted = true } })
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.equal(intercepted, true)
+  assert.equal(button.disabled, true)
+  assert.equal(reloads, 2, 'manual update recovers mounted old clients even with broken storage and a stuck worker update')
+  assert.equal(new URL(destinations[1]).searchParams.get('previous'), '1')
 })

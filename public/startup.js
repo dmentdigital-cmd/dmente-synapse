@@ -5,6 +5,21 @@
   const hasApplication = () => Boolean(root()?.children.length && !root().querySelector('[data-synapse-startup]'))
   let recoveryRunning = false
 
+  function navigateFresh() {
+    const url = new URL(window.location.href)
+    url.searchParams.set('synapse-refresh', String(Date.now()))
+    window.location.replace(url.href)
+  }
+
+  // A worker update or unavailable browser storage must not trap the retry button.
+  async function bounded(operation) {
+    let timer
+    try {
+      await Promise.race([operation(), new Promise(resolve => { timer = window.setTimeout(resolve, 1500) })])
+    } catch { /* Continue to the fresh navigation even if a browser API fails. */ }
+    finally { window.clearTimeout(timer) }
+  }
+
   async function clearShellCaches() {
     if (!('caches' in window)) return
     const keys = await caches.keys()
@@ -17,21 +32,21 @@
       if (sessionStorage.getItem(reloadKey)) return
       sessionStorage.setItem(reloadKey, '1')
     } catch { return }
-    window.location.reload()
+    navigateFresh()
   }
 
   async function recover(automatic) {
     if (recoveryRunning) return
     recoveryRunning = true
-    try {
-      await clearShellCaches()
+    await bounded(clearShellCaches)
+    await bounded(async () => {
       if ('serviceWorker' in navigator) {
         const registration = await navigator.serviceWorker.getRegistration('/')
         await registration?.update()
       }
-    } catch { /* The visible retry remains available if the connection fails. */ }
+    })
     if (automatic) reloadOnce()
-    else window.location.reload()
+    else navigateFresh()
     recoveryRunning = false
   }
 
@@ -60,6 +75,16 @@
     if (event.target instanceof HTMLScriptElement || event.target === window) window.setTimeout(showRecovery, 0)
   }, true)
   window.addEventListener('unhandledrejection', () => window.setTimeout(showRecovery, 0))
+  // Also repairs the update button of an older React bundle already on screen.
+  window.addEventListener('click', event => {
+    const button = event.target?.closest?.('.update-notice button')
+    if (!button) return
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    button.disabled = true
+    button.textContent = 'Actualizando…'
+    void recover(false)
+  }, true)
   window.setTimeout(showRecovery, 10000)
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.addEventListener('controllerchange', reloadOnce)
