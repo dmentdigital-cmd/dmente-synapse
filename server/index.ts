@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
-import { readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { URL } from 'node:url'
 import { accessFromRequest, authConfigured, authStatus, beginTotpSetup, clearSession, clearSessionCookie, confirmTotpSetup, disableTotp, hashPassword, login, loginBlocked, mfaEnabledForUser, mfaManagedForUser, recordAuthFailure, revokeUserSessions, sessionFromRequest, setSessionCookie, totpEncryptionConfigured, validateProductionSecurityConfiguration, verifyAccountPasswordAndMfa } from './auth.js'
@@ -18,6 +17,7 @@ import { handleProjectRoutes } from './project-routes.js'
 import { startDailyProjectReportScheduler } from './daily-project-report.js'
 import { inferQuadrant } from './eisenhower.js'
 import { handleSecondBrainRoutes } from './second-brain-routes.js'
+import { serveStatic } from './static-files.js'
 
 const port = Number(process.env.PORT ?? 3010)
 const host = process.env.SYNAPSE_HOST ?? '127.0.0.1'
@@ -86,33 +86,6 @@ async function completeWithHermes(input: { requestId: string; conversationAgentI
     const failure = 'No pude activar LuciaBot en Hermes para esta solicitud. El caso quedó registrado y puede revisarse desde Solicitudes.'
     addMessage({ requestId: input.requestId, agentId: input.conversationAgentId, domain: input.decision.domain, direction: 'agent', text: failure })
     addAudit({ requestId: input.requestId, action: 'hermes_reply_failed', summary: 'Fallo al procesar respuesta de Hermes', source: 'synapse-api' })
-  }
-}
-
-function contentType(filePath: string): string {
-  const extension = path.extname(filePath).toLowerCase()
-  return ({ '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.ico': 'image/x-icon' } as Record<string, string>)[extension] ?? 'application/octet-stream'
-}
-
-async function serveStatic(pathname: string, res: ServerResponse): Promise<void> {
-  const decoded = decodeURIComponent(pathname)
-  const requested = path.resolve(distDir, `.${decoded === '/' ? '/index.html' : decoded}`)
-  if (requested !== distDir && !requested.startsWith(`${distDir}${path.sep}`)) { res.writeHead(403); res.end('Forbidden'); return }
-  let filePath = requested
-  try {
-    if (!(await stat(filePath)).isFile()) throw new Error('not a file')
-  } catch {
-    filePath = path.join(distDir, 'index.html')
-  }
-  try {
-    const file = await readFile(filePath)
-    const isEntryPoint = filePath.endsWith('index.html') || filePath.endsWith('sw.js')
-    const isHashedAsset = filePath.includes(`${path.sep}assets${path.sep}`)
-    res.writeHead(200, { 'Content-Type': contentType(filePath), 'Cache-Control': isEntryPoint ? 'no-cache' : isHashedAsset ? 'public, max-age=31536000, immutable' : 'public, max-age=3600' })
-    res.end(file)
-  } catch {
-    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
-    res.end('Not found')
   }
 }
 
@@ -572,7 +545,7 @@ const server = createServer(async (req, res) => {
       return send(res, 200, { request })
     }
     if (req.method === 'GET' && !url.pathname.startsWith('/api/')) {
-      await serveStatic(url.pathname, res)
+      await serveStatic(distDir, url.pathname, res)
       return
     }
     return send(res, 404, { error: 'not found' })

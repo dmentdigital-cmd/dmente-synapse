@@ -258,10 +258,6 @@ function CookieNotice() {
 
 createRoot(document.getElementById('root')!).render(<StrictMode><Root /><CookieNotice /></StrictMode>)
 
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => { void navigator.serviceWorker.register('/sw.js?v=4').catch(() => undefined) })
-}
-
 function sectionFromHash(hash: string): Section {
   const section = hash.replace(/^#/, '')
   if (section === 'projects' || section.startsWith('projects/')) return 'projects'
