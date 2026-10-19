@@ -1,4 +1,4 @@
-import { lazy, StrictMode, Suspense, useEffect, useMemo, useState } from 'react'
+import { lazy, StrictMode, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { agents, initialMessages } from './agents'
 import { ChatDock, ChatPanel } from './components/ChatPanel'
@@ -85,6 +85,8 @@ function App({ onLogout, role, userId, domains, mfaEnabled, mfaManaged, mfaEnrol
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [installed, setInstalled] = useState(() => window.matchMedia('(display-mode: standalone)').matches || Boolean((navigator as Navigator & { standalone?: boolean }).standalone))
   const [updateAvailable, setUpdateAvailable] = useState(false)
+  // A polling response that started before an agenda edit must never overwrite the edit.
+  const agendaMutationVersion = useRef(0)
   const agent = agents[activeAgent]
   const canViewLeads = !mfaEnrollmentRequired && (role === 'admin' || Boolean(domains?.includes('sales')))
   const canViewSecondBrain = !mfaEnrollmentRequired && role === 'admin'
@@ -144,6 +146,7 @@ function App({ onLogout, role, userId, domains, mfaEnabled, mfaManaged, mfaEnrol
     let cancelled = false
     if (mfaEnrollmentRequired) return () => { cancelled = true }
     async function hydrate() {
+      const requestVersion = agendaMutationVersion.current
       try {
         const [agendaResponse, messagesResponse] = await Promise.all([fetch('/api/operational-agenda'), fetch(`/api/messages?agentId=${activeAgent}`)])
         if (!agendaResponse.ok) {
@@ -153,7 +156,7 @@ function App({ onLogout, role, userId, domains, mfaEnabled, mfaManaged, mfaEnrol
         if (!messagesResponse.ok) throw new Error('No se pudo cargar la sesión de Synapse')
         const agenda = await agendaResponse.json() as { items: AgendaItem[] }
         const apiMessages = await messagesResponse.json() as { messages: ApiMessage[] }
-        if (cancelled) return
+        if (cancelled || requestVersion !== agendaMutationVersion.current) return
         const activeAgents = agenda.items.filter((item) => item.kind !== 'milestone' && item.status !== 'done' && item.status !== 'cancelled').map((item) => item.agentId)
         setAgendaItems(agenda.items)
         setRequests(agenda.items.filter((item) => item.kind === 'request'))
@@ -196,6 +199,7 @@ function App({ onLogout, role, userId, domains, mfaEnabled, mfaManaged, mfaEnrol
   }
 
   async function updateAgendaStatus(itemId: string, status: AgendaItem['status'], comment: string) {
+    agendaMutationVersion.current += 1
     const response = await fetch(`/api/operational-agenda/items/${encodeURIComponent(itemId)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status, comment }) })
     const data = await response.json() as { item?: AgendaItem; error?: string }
     if (!response.ok || !data.item) throw new Error(data.error ?? 'No se pudo actualizar la tarea')
@@ -204,6 +208,7 @@ function App({ onLogout, role, userId, domains, mfaEnabled, mfaManaged, mfaEnrol
   }
 
   async function createAgendaItem(input: { title: string; domain: string; projectId: string; agentId: AgentId; priority: ApiRequest['priority']; riskLevel: ApiRequest['riskLevel']; requiresApproval: boolean; startsAt: string | null; dueAt: string | null; nextAction: string }) {
+    agendaMutationVersion.current += 1
     const response = await fetch('/api/operational-agenda/items', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
     const data = await response.json() as { item?: AgendaItem; error?: string }
     if (!response.ok || !data.item) throw new Error(data.error ?? 'No se pudo crear la tarea')
@@ -212,6 +217,7 @@ function App({ onLogout, role, userId, domains, mfaEnabled, mfaManaged, mfaEnrol
   }
 
   async function editAgendaItem(itemId: string, input: Record<string, unknown>) {
+    agendaMutationVersion.current += 1
     const response = await fetch(`/api/operational-agenda/items/${encodeURIComponent(itemId)}/details`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
     const data = await response.json() as { item?: AgendaItem; error?: string }
     if (!response.ok || !data.item) throw new Error(data.error ?? 'No se pudo editar la tarea')
@@ -220,6 +226,7 @@ function App({ onLogout, role, userId, domains, mfaEnabled, mfaManaged, mfaEnrol
   }
 
   async function deleteAgendaItem(item: AgendaItem) {
+    agendaMutationVersion.current += 1
     const response = await fetch(`/api/operational-agenda/items/${encodeURIComponent(item.id)}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedTitle: item.title }) })
     const data = await response.json() as { deleted?: boolean; error?: string }
     if (!response.ok || !data.deleted) throw new Error(data.error ?? 'No se pudo eliminar la tarea')
@@ -228,6 +235,7 @@ function App({ onLogout, role, userId, domains, mfaEnabled, mfaManaged, mfaEnrol
   }
 
   async function approveAgendaItem(itemId: string) {
+    agendaMutationVersion.current += 1
     const response = await fetch(`/api/requests/${encodeURIComponent(itemId)}/approve`, { method: 'POST' })
     const data = await response.json() as { request?: ApiRequest; error?: string }
     if (!response.ok || !data.request) throw new Error(data.error ?? 'No se pudo registrar la aprobación')
