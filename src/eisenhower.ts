@@ -12,6 +12,9 @@ export function agendaQuadrant(hash: string): Quadrant | null {
   const match = /^#agenda\/eisenhower\/(Q[1-4])$/.exec(hash)
   return match ? match[1] as Quadrant : null
 }
+export function isEisenhowerAgenda(hash: string): boolean {
+  return hash === '#agenda/eisenhower' || agendaQuadrant(hash) !== null
+}
 /** The server's classification is authoritative. Never infer a second quadrant here. */
 export function groupOpenAgenda(items: AgendaItem[]) {
   const groups: Record<Quadrant, AgendaItem[]> = { Q1: [], Q2: [], Q3: [], Q4: [] }

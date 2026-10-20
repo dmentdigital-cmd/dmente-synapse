@@ -55,7 +55,7 @@ async function workerHarness() {
   vm.runInNewContext(await readFile('public/sw.js', 'utf8'), {
     URL, Response,
     self: { location: { origin: 'https://synapse.test' }, addEventListener: (name: string, callback: (event: any) => void) => listeners.set(name, callback), skipWaiting: async () => undefined, clients: { claim: async () => undefined } },
-    caches: { open: async () => cache, match: cache.match, keys: async () => ['dmente-synapse-shell-v5', 'dmente-synapse-shell-v6', 'unrelated-cache'], delete: async (name: string) => { deleted.push(name); return true } },
+    caches: { open: async () => cache, match: cache.match, keys: async () => ['dmente-synapse-shell-v5', 'dmente-synapse-shell-v6', 'dmente-synapse-shell-v7', 'unrelated-cache'], delete: async (name: string) => { deleted.push(name); return true } },
     fetch: async () => { fetches++; if (offline) throw new Error('offline'); return network.clone() },
   })
   return { listeners, entries, deleted, setNetwork: (response: Response) => { network = response }, setOffline: () => { offline = true }, setCacheFull: () => { cacheFull = true }, fetches: () => fetches,
@@ -92,7 +92,7 @@ test('service worker only removes its old shell caches and handles offline start
   let activation: Promise<unknown> | undefined
   worker.listeners.get('activate')!({ waitUntil: (promise: Promise<unknown>) => { activation = promise } })
   await activation
-  assert.deepEqual(worker.deleted, ['dmente-synapse-shell-v5'])
+  assert.deepEqual(worker.deleted, ['dmente-synapse-shell-v5', 'dmente-synapse-shell-v6'])
   worker.setCacheFull()
   assert.equal((await worker.request('/assets/valid.js'))!.status, 200)
   worker.setOffline()
@@ -114,7 +114,7 @@ test('recovery starts independently of React, reloads at most once, and leaves m
     caches: { keys: async () => { if (brokenCache) throw new Error('storage unavailable'); return ['dmente-synapse-shell-v5', 'other-app'] }, delete: async (name: string) => { deleted.push(name); return true } },
     sessionStorage: { getItem: (name: string) => storage.get(name), setItem: (name: string, value: string) => storage.set(name, value) },
   })
-  assert.equal(scriptUrl, '/sw.js?v=4')
+  assert.equal(scriptUrl, '/sw.js?v=5')
   callbacks.get('controllerchange')!()
   callbacks.get('controllerchange')!()
   assert.equal(reloads, 1)

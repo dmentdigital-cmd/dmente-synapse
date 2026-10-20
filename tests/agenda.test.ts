@@ -13,7 +13,7 @@ const envKey = (...parts: string[]) => parts.join('_')
 const env = { ...process.env, NODE_ENV: 'test', PORT: '3055', SYNAPSE_DATA_DIR: dataDir, SYNAPSE_OWNER_USERNAME: 'fixture-owner', [envKey('SYNAPSE', 'OWNER', 'PASSWORD')]: ['fixture', 'credential'].join('-'), [envKey('SYNAPSE', 'SESSION', 'SECRET')]: ['fixture', 'session', 'key'].join('-'), [envKey('SYNAPSE', 'MCP', 'TOKEN')]: '', [envKey('SYNAPSE', 'MCP', 'READ', 'TOKEN')]: ['fixture', 'read'].join('-'), [envKey('SYNAPSE', 'MCP', 'WRITE', 'TOKEN')]: ['fixture', 'write'].join('-'), SYNAPSE_MCP_WRITE_DOMAINS: 'agency,technology', HERMES_API_URL: '' }
 
 async function start() {
-  child = spawn(process.execPath, ['node_modules/tsx/dist/cli.mjs', 'server/index.ts'], { env, stdio: ['ignore', 'pipe', 'pipe'] })
+  child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts'], { env, stdio: ['ignore', 'pipe', 'pipe'] })
   let output = ''
   child.stdout?.on('data', (chunk) => { output += String(chunk) })
   child.stderr?.on('data', (chunk) => { output += String(chunk) })
@@ -171,4 +171,26 @@ test('Eisenhower supports manual classification and grouped counts without exter
   assert.equal(agenda.status, 200)
   assert.equal(agenda.data.counts.Q3 >= 1, true)
   assert.equal(agenda.data.items.some((item: any) => item.id === created.id && item.eisenhower.quadrant === 'Q3'), true)
+})
+
+test('commitment and request quadrant edits survive re-reading, status changes and a server restart', async () => {
+  const commitment = (await api('/api/commitments', 'POST', { title: 'Fixture: seguimiento de consultorio', domain: 'agency', people: ['Persona de prueba'], startsAt: '2020-01-01T10:00:00-05:00' })).data.commitment
+  const id = `commitment:${commitment.id}`
+  const route = `/api/operational-agenda/items/${encodeURIComponent(id)}`
+  for (const quadrant of ['Q1', 'Q3', 'Q4', 'Q2']) {
+    const saved = await api(`${route}/details`, 'PATCH', { quadrant })
+    assert.equal(saved.status, 200)
+    assert.equal(saved.data.item.eisenhower.quadrant, quadrant)
+    const reread = (await api('/api/operational-agenda?view=eisenhower')).data.items.find((item: any) => item.id === id)
+    assert.equal(reread.eisenhower.quadrant, quadrant)
+    assert.deepEqual(reread.people, ['Persona de prueba'])
+  }
+  await api(route, 'PATCH', { status: 'done', comment: 'Fixture: comprobación de persistencia' })
+  const task = (await api('/api/operational-agenda/items', 'POST', { title: 'Fixture: solicitud urgente clasificada manualmente', domain: 'technology', agentId: 'tecnico', priority: 'urgent' })).data.item
+  assert.equal((await api(`/api/operational-agenda/items/${task.id}/details`, 'PATCH', { quadrant: 'Q2' })).data.item.eisenhower.quadrant, 'Q2')
+  await stop(); await start(); await login()
+  const items = (await api('/api/operational-agenda')).data.items
+  assert.equal(items.find((item: any) => item.id === id).eisenhower.quadrant, 'Q2')
+  assert.equal(items.find((item: any) => item.id === id).status, 'done')
+  assert.equal(items.find((item: any) => item.id === task.id).eisenhower.quadrant, 'Q2')
 })
