@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from 'react'
-import { AlertTriangle, ArrowDownWideNarrow, CalendarClock, Check, CheckCheck, Circle, Clock3, ExternalLink, Filter, Flag, Pencil, Plus, Save, ShieldAlert, Sparkles, Trash2, X } from 'lucide-react'
+import { AlertTriangle, ArrowDownWideNarrow, CalendarClock, Check, CheckCheck, Circle, Clock3, ExternalLink, Filter, Flag, Pencil, Plus, Save, Search, ShieldAlert, Sparkles, Trash2, X } from 'lucide-react'
 import { agents } from '../agents'
 import type { AgendaItem } from '../main'
 import type { AgentId } from '../types'
-import { agendaQuadrant, quadrantLabels, type Quadrant } from '../eisenhower'
+import { agendaQuadrant, isEisenhowerAgenda, quadrantLabels, type Quadrant } from '../eisenhower'
+import { matchesAgendaSearch } from '../agenda-search'
 
 type NewAgendaItem = { title: string; domain: string; projectId: string; agentId: AgentId; priority: ApiPriority; riskLevel: AgendaItem['riskLevel']; requiresApproval: boolean; startsAt: string; dueAt: string; nextAction: string }
 type ApiPriority = AgendaItem['priority']
 type RescheduleMode = 'both' | 'start' | 'due'
 type RescheduleEdit = { item: AgendaItem; day: string; mode: RescheduleMode; busy: boolean }
 type Props = { items: AgendaItem[]; loadError: string; onCreate: (input: Omit<NewAgendaItem, 'startsAt' | 'dueAt'> & { startsAt: string | null; dueAt: string | null }) => Promise<void>; onEdit: (id: string, input: Record<string, unknown>) => Promise<void>; onDelete: (item: AgendaItem) => Promise<void>; onUpdateStatus: (id: string, status: AgendaItem['status'], comment: string) => Promise<void>; onApprove: (id: string) => Promise<void>; onClose: () => void }
-type View = 'today' | 'tomorrow' | 'week' | 'overdue' | 'calendar' | 'kanban' | 'eisenhower'
+type View = 'today' | 'tomorrow' | 'week' | 'overdue' | 'calendar' | 'kanban' | 'eisenhower' | 'search'
 const statusLabels: Record<AgendaItem['status'], string> = { pending: 'Pendiente', in_progress: 'En progreso', waiting_approval: 'Esperando aprobación', blocked: 'Bloqueado', done: 'Hecho', cancelled: 'Cancelado' }
 const priorityLabels = { urgent: 'Urgente', high: 'Alta', normal: 'Normal', low: 'Baja' } as const
 const domainLabels: Record<string, string> = { family: 'Familia', health: 'Salud familiar', agency: 'Agencia', sales: 'Ventas', marketing: 'Marketing', technology: 'Técnico / producto', learning: 'Aprendizaje', projects: 'Proyectos', personal: 'Personal', education: 'Educación', church: 'Iglesia', wellbeing: 'Bienestar', finance: 'Finanzas', knowledge: 'Conocimiento', product: 'Producto', messaging: 'Mensajería', legal: 'Legal' }
@@ -100,16 +101,22 @@ function bogotaIso(day: string, time: string): string {
 }
 
 export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete, onUpdateStatus, onApprove, onClose }: Props) {
-  const [view, setView] = useState<View>(() => agendaQuadrant(window.location.hash) ? 'eisenhower' : 'today')
+  const [view, setView] = useState<View>(() => isEisenhowerAgenda(window.location.hash) ? 'eisenhower' : 'today')
   const [quadrantFilter, setQuadrantFilter] = useState<Quadrant | 'all'>(() => agendaQuadrant(window.location.hash) ?? 'all')
   const [domain, setDomain] = useState('all')
   const [project, setProject] = useState('all')
   const [agent, setAgent] = useState('all')
   const [priority, setPriority] = useState('all')
   // Eisenhower is also the recovery view: closed items must remain discoverable there.
-  const [status, setStatus] = useState(() => agendaQuadrant(window.location.hash) ? 'all' : 'active')
+  const [status, setStatus] = useState(() => isEisenhowerAgenda(window.location.hash) ? 'all' : 'active')
   const [approvalOnly, setApprovalOnly] = useState(false)
   const [sourceTopic, setSourceTopic] = useState('all')
+  const [searchDraft, setSearchDraft] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [notice, setNotice] = useState('')
+  const [highlightedId, setHighlightedId] = useState<string | null>(null)
+  const highlightedCard = useRef<HTMLElement | null>(null)
+  const focusSavedCard = useRef(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<AgendaItem | null>(null)
@@ -127,6 +134,28 @@ export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete
   const today = dateKey(new Date())
   const tomorrow = shiftDay(today, 1)
   const weekEnd = shiftDay(today, 6)
+
+  useEffect(() => {
+    if (createOpen || !highlightedId || !focusSavedCard.current || !highlightedCard.current) return
+    focusSavedCard.current = false
+    highlightedCard.current.scrollIntoView({ block: 'nearest' })
+    highlightedCard.current.focus({ preventScroll: true })
+  }, [items, highlightedId, createOpen])
+
+  function resetFilters() {
+    setDomain('all'); setProject('all'); setAgent('all'); setPriority('all')
+    setStatus('all'); setApprovalOnly(false); setSourceTopic('all'); setQuadrantFilter('all')
+    window.history.replaceState(null, '', '#agenda')
+  }
+
+  function searchAgenda(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    resetFilters()
+    setSearchQuery(searchDraft.trim())
+    setView('search')
+    setNotice('')
+    setHighlightedId(null)
+  }
 
   useEffect(() => {
     if (!createOpen && !deleteItem && !statusEdit && !rescheduleEdit) return
@@ -194,8 +223,9 @@ export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete
       && (status === 'all' || (status === 'active' ? (view === 'kanban' ? item.status !== 'cancelled' : active) : item.status === status))
       && (!approvalOnly || (item.requiresApproval && !item.approvalConfirmed))
       && (sourceTopic === 'all' || item.eisenhower?.sourceTopic === sourceTopic)
+      && (view !== 'search' || matchesAgendaSearch(item, searchQuery, [domainLabels[item.domain] ?? '', agentView(item.agentId).name]))
       && (view !== 'eisenhower' || (item.kind !== 'milestone' && (quadrantFilter === 'all' || item.eisenhower?.quadrant === quadrantFilter)))
-  }).sort((left, right) => (left.startsAt ?? left.dueAt ?? '').localeCompare(right.startsAt ?? right.dueAt ?? '')), [items, view, today, tomorrow, weekEnd, domain, project, agent, priority, status, approvalOnly, sourceTopic, quadrantFilter])
+  }).sort((left, right) => (left.startsAt ?? left.dueAt ?? '').localeCompare(right.startsAt ?? right.dueAt ?? '')), [items, view, today, tomorrow, weekEnd, domain, project, agent, priority, status, approvalOnly, sourceTopic, quadrantFilter, searchQuery])
 
   async function runAction(id: string, action: () => Promise<void>) {
     setBusyId(id)
@@ -220,7 +250,18 @@ export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete
           const original = editingItem[key as keyof AgendaItem]
           return (value === original || (key === 'projectId' && !value && !original)) ? [] : [[key, value]]
         })); if (quadrantEdit !== editingItem.eisenhower?.quadrant) changes.quadrant = quadrantEdit
-        if (Object.keys(changes).length) await onEdit(editingItem.id, changes)
+        if (Object.keys(changes).length) {
+          await onEdit(editingItem.id, changes)
+          if ('quadrant' in changes) {
+            resetFilters()
+            setView('eisenhower')
+            window.history.replaceState(null, '', '#agenda/eisenhower')
+            setSearchDraft(''); setSearchQuery('')
+            focusSavedCard.current = true
+            setHighlightedId(editingItem.id)
+            setNotice(`«${input.title}» guardada en ${quadrantEdit ? `${quadrantEdit} · ${quadrantLabels[quadrantEdit].title}` : 'el cuadrante automático'}. Se muestran todos los cuadrantes.`)
+          } else setNotice(`Cambios guardados: ${input.title}.`)
+        }
       } else await onCreate(input)
       setNewItem({ title: '', domain: 'projects', projectId: '', agentId: 'pmo', priority: 'normal', riskLevel: 'low', requiresApproval: false, startsAt: '', dueAt: '', nextAction: '' })
       setCreateOpen(false)
@@ -274,7 +315,7 @@ export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete
     const day = itemDay(item)
     const dueDay = deadlineDay(item)
     const overdue = Boolean(dueDay && dueDay < today && item.status !== 'done' && item.status !== 'cancelled')
-    return <article className={`agenda-task priority-${item.priority} ${overdue ? 'is-overdue' : ''}`} key={item.id}>
+    return <article className={`agenda-task priority-${item.priority} ${overdue ? 'is-overdue' : ''} ${highlightedId === item.id ? 'agenda-task-saved' : ''}`} key={item.id} ref={highlightedId === item.id ? highlightedCard : undefined} tabIndex={highlightedId === item.id ? -1 : undefined}>
       <div className="agenda-task-identity">
         <span className="agenda-agent-avatar" style={{ '--agent-color': person.color } as CSSProperties}><img src={person.normal} alt="" /></span>
         <div className="agenda-task-heading"><strong>{item.title}</strong><div className="agenda-tags">{item.kind === 'milestone' ? <span className="agenda-milestone-tag"><Flag size={10} />Hito</span> : <span className={`agenda-priority ${item.priority}`}>{priorityLabels[item.priority] ?? item.priority}</span>}<span className={`agenda-domain domain-${item.domain}`}>{domainLabels[item.domain] ?? item.domain}</span>{item.eisenhower?.quadrant && <span className={`agenda-quadrant ${item.eisenhower.quadrant.toLowerCase()}`}>{item.eisenhower.quadrant}</span>}{item.requiresApproval && <span className={item.approvalConfirmed ? 'agenda-approval approved' : 'agenda-approval'}>{item.approvalConfirmed ? 'Aprobación registrada' : 'Requiere aprobación'}</span>}</div></div>
@@ -297,12 +338,17 @@ export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete
     </article>
   }
 
-  const viewOptions: { id: View; label: string }[] = [{ id: 'today', label: 'Hoy' }, { id: 'tomorrow', label: 'Mañana' }, { id: 'week', label: 'Esta semana' }, { id: 'overdue', label: `Atrasadas${counts.overdue ? ` · ${counts.overdue}` : ''}` }, { id: 'calendar', label: 'Calendario' }, { id: 'kanban', label: 'Kanban' }, { id: 'eisenhower', label: 'Eisenhower' }]
+  const viewOptions: { id: View; label: string }[] = [{ id: 'today', label: 'Hoy' }, { id: 'tomorrow', label: 'Mañana' }, { id: 'week', label: 'Esta semana' }, { id: 'overdue', label: `Atrasadas${counts.overdue ? ` · ${counts.overdue}` : ''}` }, { id: 'calendar', label: 'Calendario' }, { id: 'kanban', label: 'Kanban' }, { id: 'eisenhower', label: 'Eisenhower' }, { id: 'search', label: 'Todos / Buscar' }]
 
   return <section className="operational-agenda" aria-label="Agenda Operativa">
     <header className="agenda-hero"><div><span className="eyebrow">DMENTE SYNAPSE · CENTRO DE MANDO</span><h1>Agenda <em>Operativa</em></h1><p>El siguiente movimiento de cada proyecto, en un solo lugar.</p></div><div className="agenda-hero-stats"><div className="agenda-stat"><strong>{counts.today}</strong><span>para hoy</span></div><div className="agenda-stat"><strong>{counts.tomorrow}</strong><span>mañana</span></div><button className={`agenda-stat approval-stat ${approvalOnly ? 'selected' : ''}`} onClick={() => { setApprovalOnly((current) => !current); setView('week') }}><strong>{counts.approvals}</strong><span>por aprobar</span></button></div></header>
     <div className="agenda-ribbon"><span className="agenda-ribbon-mark"><CheckCheck size={18} /></span><div><strong>Primero lo que necesita tu atención</strong><span>{counts.overdue ? `${counts.overdue} tareas atrasadas · ` : ''}{counts.approvals ? `${counts.approvals} esperando tu aprobación` : 'No hay aprobaciones pendientes'}</span></div><span className="agenda-date-label">{new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())}</span></div>
-    <div className="agenda-toolbar"><div className="agenda-view-tabs" role="tablist" aria-label="Vistas de agenda">{viewOptions.map((option) => <button key={option.id} role="tab" aria-selected={view === option.id} className={view === option.id ? 'active' : ''} onClick={() => { setView(option.id); if (option.id === 'eisenhower') setStatus('all') }}>{option.label}</button>)}</div><div className="agenda-toolbar-actions"><button className="agenda-new-task" onClick={() => openEditor(null)}><Plus size={15} />Nueva tarea</button><button className="agenda-close" onClick={onClose}><Check size={15} />Volver a oficina</button></div></div>
+    <div className="agenda-toolbar"><div className="agenda-view-tabs" role="tablist" aria-label="Vistas de agenda">{viewOptions.map((option) => <button key={option.id} role="tab" aria-selected={view === option.id} className={view === option.id ? 'active' : ''} onClick={() => { setView(option.id); if (option.id === 'eisenhower') { setStatus('all'); setQuadrantFilter('all'); window.history.replaceState(null, '', '#agenda/eisenhower') } if (option.id === 'search') { resetFilters(); setSearchQuery(searchDraft.trim()) } }}>{option.label}</button>)}</div><div className="agenda-toolbar-actions"><button className="agenda-new-task" onClick={() => openEditor(null)}><Plus size={15} />Nueva tarea</button><button className="agenda-close" onClick={onClose}><Check size={15} />Volver a oficina</button></div></div>
+    <form className="agenda-search" role="search" onSubmit={searchAgenda}>
+      <label htmlFor="agenda-search-input"><Search size={17} /><span>Buscar en toda la agenda</span></label>
+      <div className="agenda-search-controls"><input id="agenda-search-input" type="search" value={searchDraft} onChange={(event) => { setSearchDraft(event.target.value); if (view === 'search') setSearchQuery(event.target.value.trim()) }} placeholder="Palabra clave, persona o proyecto" aria-describedby="agenda-search-hint" /><button type="submit" className="agenda-close"><Search size={15} />Buscar</button>{(searchDraft || searchQuery) && <button type="button" className="agenda-close" onClick={() => { setSearchDraft(''); setSearchQuery('') }}>Limpiar búsqueda</button>}</div>
+      <small id="agenda-search-hint">Busca en todas las fechas y estados, incluidos compromisos sin fecha, hechos y cancelados.</small>
+    </form>
     <div className="agenda-filters"><span className="filters-label"><Filter size={14} />Filtrar</span>
       {view === 'eisenhower' && <select aria-label="Filtrar por cuadrante" value={quadrantFilter} onChange={event => setQuadrantFilter(event.target.value as Quadrant | 'all')}><option value="all">Todos los cuadrantes</option>{(Object.keys(quadrantLabels) as Quadrant[]).map(quadrant => <option key={quadrant} value={quadrant}>{quadrant} · {quadrantLabels[quadrant].action}</option>)}</select>}
       <select aria-label="Filtrar por dominio" value={domain} onChange={(event) => setDomain(event.target.value)}><option value="all">Todos los dominios</option>{domains.map((item) => <option key={item} value={item}>{domainLabels[item] ?? item}</option>)}</select>
@@ -312,6 +358,9 @@ export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete
       <select aria-label="Filtrar por estado" value={status} onChange={(event) => setStatus(event.target.value)}><option value="active">Estados activos</option><option value="all">Todos los estados</option>{Object.entries(statusLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
       <select aria-label="Filtrar por hilo de origen" value={sourceTopic} onChange={(event) => setSourceTopic(event.target.value)}><option value="all">Todos los hilos</option>{[...new Set(items.map((item) => item.eisenhower?.sourceTopic).filter((value): value is string => Boolean(value)))].sort().map((topic) => <option key={topic} value={topic}>{topic}</option>)}</select>
     </div>
+    {view === 'eisenhower' && quadrantFilter !== 'all' && <div className="agenda-filter-notice"><span>Solo se muestra {quadrantFilter}. Los demás cuadrantes están ocultos por el filtro.</span><button className="agenda-close" onClick={() => { setQuadrantFilter('all'); window.history.replaceState(null, '', '#agenda/eisenhower') }}>Ver todos los cuadrantes</button></div>}
+    {notice && <div className="agenda-save-notice" role="status"><CheckCheck size={17} /><span>{notice}</span><button type="button" className="agenda-close" aria-label="Cerrar confirmación" onClick={() => { setNotice(''); setHighlightedId(null) }}><X size={15} /></button></div>}
+    {view === 'search' && <p className="agenda-search-results" role="status">{filteredItems.length} {filteredItems.length === 1 ? 'resultado' : 'resultados'}{searchQuery ? ` para «${searchQuery}»` : ' en toda la agenda'}. {domain !== 'all' || project !== 'all' || agent !== 'all' || priority !== 'all' || status !== 'all' || approvalOnly || sourceTopic !== 'all' ? 'Hay filtros adicionales activos.' : 'Todas las fechas y estados.'}</p>}
     {(error || loadError) && <div className="agenda-error" role="alert"><AlertTriangle size={15} />{error || loadError}</div>}
     {deleteItem && <div className="agenda-modal-backdrop"><form tabIndex={-1} className="agenda-create-form status-comment-modal" role="alertdialog" aria-modal="true" aria-labelledby="agenda-delete-title" onSubmit={(event) => void confirmDelete(event)}>
       <header><h2 id="agenda-delete-title">Eliminar tarea</h2><button type="button" aria-label="Cerrar" disabled={deleteBusy} onClick={() => setDeleteItem(null)}><X size={18} /></button></header>
@@ -338,14 +387,14 @@ export function OperationalAgenda({ items, loadError, onCreate, onEdit, onDelete
       <footer><button className="agenda-close" type="button" disabled={rescheduleEdit.busy} onClick={() => setRescheduleEdit(null)}>Cancelar</button><button className="agenda-new-task" type="submit" disabled={rescheduleEdit.busy}>{rescheduleEdit.busy ? 'Guardando…' : 'Reprogramar tarea'}</button></footer>
     </form></div>}
     <div className="agenda-content">
-      {view === 'eisenhower' ? <div className="eisenhower-grid">{(Object.keys(quadrantLabels) as Quadrant[]).map((quadrant) => { const columnItems = filteredItems.filter((item) => item.eisenhower?.quadrant === quadrant); const meta = quadrantLabels[quadrant]; return <section className={`eisenhower-quadrant ${meta.tone}`} key={quadrant}><header><div><span>{quadrant}</span><strong>{meta.title}</strong><small>{meta.action}</small></div><b>{columnItems.length}</b></header><div className="eisenhower-cards">{columnItems.map((item) => renderCard(item))}{columnItems.length === 0 && <p className="kanban-empty">Sin tareas clasificadas</p>}</div></section> })}</div> : view === 'kanban' ? <div className="agenda-kanban">{kanbanColumns.map((column) => {
+      {view === 'eisenhower' ? <div className="eisenhower-grid">{(Object.keys(quadrantLabels) as Quadrant[]).filter((quadrant) => quadrantFilter === 'all' || quadrantFilter === quadrant).map((quadrant) => { const columnItems = filteredItems.filter((item) => item.eisenhower?.quadrant === quadrant); const meta = quadrantLabels[quadrant]; return <section className={`eisenhower-quadrant ${meta.tone}`} key={quadrant}><header><div><span>{quadrant}</span><strong>{meta.title}</strong><small>{meta.action}</small></div><b>{columnItems.length}</b></header><div className="eisenhower-cards">{columnItems.map((item) => renderCard(item))}{columnItems.length === 0 && <p className="kanban-empty">Sin tareas clasificadas</p>}</div></section> })}</div> : view === 'kanban' ? <div className="agenda-kanban">{kanbanColumns.map((column) => {
         const columnItems = filteredItems.filter((item) => kanbanStatus(item) === column)
         return <section className={`kanban-column ${column}`} key={column}><header><span>{statusLabels[column]}</span><b>{columnItems.length}</b></header><div className="kanban-cards">{columnItems.map((item) => renderCard(item))}{columnItems.length === 0 && <p className="kanban-empty">Sin tareas</p>}</div></section>
       })}</div> : view === 'calendar' ? <div className="agenda-calendar-week">{Array.from({ length: 7 }, (_, index) => shiftDay(today, index)).map((day) => {
         const dayItems = filteredItems.filter((item) => itemDay(item) === day)
         const local = new Date(`${day}T12:00:00-05:00`)
         return <section className="calendar-day" key={day}><header><small>{new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', weekday: 'short' }).format(local)}</small><strong>{new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', day: 'numeric' }).format(local)}</strong></header>{dayItems.map((item) => <button className={`calendar-event priority-${item.priority}`} key={item.id} onClick={() => setView('week')}><time>{item.startsAt ? formatTime(item.startsAt) : 'Todo el día'}</time><strong>{item.title}</strong><small>{agentView(item.agentId).name}</small></button>)}</section>
-      })}</div> : filteredItems.length ? <div className="agenda-list">{filteredItems.map((item) => renderCard(item))}</div> : <div className="agenda-empty"><span><CheckCheck size={23} /></span><strong>Agenda despejada</strong><p>No hay tareas en esta vista con los filtros actuales.</p><button onClick={() => { setView('week'); setDomain('all'); setProject('all'); setAgent('all'); setPriority('all'); setStatus('active'); setApprovalOnly(false) }}>Ver semana completa</button></div>}
+      })}</div> : view === 'search' && !filteredItems.length ? <div className="agenda-empty"><strong>Sin coincidencias</strong><p>Prueba otra palabra o quita los filtros adicionales.</p><button onClick={() => { resetFilters(); setSearchDraft(''); setSearchQuery('') }}>Ver toda la agenda</button></div> : filteredItems.length ? <div className="agenda-list">{filteredItems.map((item) => renderCard(item))}</div> : <div className="agenda-empty"><span><CheckCheck size={23} /></span><strong>Agenda despejada</strong><p>No hay tareas en esta vista con los filtros actuales.</p><button onClick={() => { setView('week'); setDomain('all'); setProject('all'); setAgent('all'); setPriority('all'); setStatus('active'); setApprovalOnly(false) }}>Ver semana completa</button></div>}
     </div>
     <footer className="agenda-footer"><span><ShieldAlert size={13} />Las acciones externas siguen sujetas a aprobación registrada.</span><span><Clock3 size={13} />Hora Colombia</span></footer>
     {createOpen && <div className="agenda-modal-backdrop"><form tabIndex={-1} className="agenda-create-form" role="dialog" aria-modal="true" aria-labelledby="agenda-create-title" onSubmit={(event) => void createTask(event)}>

@@ -7,6 +7,7 @@ import { AddAgentPanel } from './components/AddAgentPanel'
 import { AgentsPanel } from './components/AgentsPanel'
 import { AgendaErrorBoundary } from './components/AgendaErrorBoundary'
 import { OperationalAgenda } from './components/OperationalAgenda'
+import { AgendaSync } from './agenda-sync'
 import { LoginScreen } from './components/LoginScreen'
 import { OfficeStage } from './components/OfficeStage'
 import { ProjectsErrorBoundary } from './components/projects/ProjectsErrorBoundary'
@@ -29,7 +30,7 @@ const SecondBrainPanel = lazy(() => import('./features/second-brain/SecondBrainW
 
 type ApiMessage = { id: string; direction: 'user' | 'agent'; text: string; createdAt: string }
 export type ApiRequest = { id: string; agentId: AgentId; title: string; domain: string; projectId: string | null; priority: 'low' | 'normal' | 'high' | 'urgent'; status: 'pending' | 'in_progress' | 'waiting_approval' | 'blocked' | 'done' | 'cancelled'; riskLevel: 'low' | 'medium' | 'high'; requiresApproval: boolean; approvalConfirmed: boolean; startsAt: string | null; dueAt: string | null; nextAction: string; obsidianNote?: string | null; sourcePath: string | null; sourceDriveFolder: string | null; eisenhower: { quadrant: 'Q1' | 'Q2' | 'Q3' | 'Q4' | null; urgency: 'low' | 'medium' | 'high' | null; importance: 'low' | 'medium' | 'high' | null; urgencyReason: string | null; importanceReason: string | null; sourceTopic: string | null } }
-export type AgendaItem = ApiRequest & { id: string; kind: 'request' | 'commitment' | 'milestone'; requestId: string | null; commitmentId: string | null; createdAt: string; updatedAt: string; lastStatusComment?: { comment: string | null; createdAt: string } | null }
+export type AgendaItem = ApiRequest & { id: string; kind: 'request' | 'commitment' | 'milestone'; requestId: string | null; commitmentId: string | null; people?: string[]; createdAt: string; updatedAt: string; lastStatusComment?: { comment: string | null; createdAt: string } | null }
 type AuthRole = 'viewer' | 'operator' | 'approver' | 'admin'
 type AuthState = { configured: boolean; authenticated: boolean; mfaRequired?: boolean; mfaEnabled?: boolean; mfaManaged?: boolean; termsAccepted?: boolean; userId?: string; role?: AuthRole; domains?: string[]; trialEnabled?: boolean; trialStartedAt?: string | null; trialEndsAt?: string | null; trialExpired?: boolean; trialDaysRemaining?: number | null }
 
@@ -92,8 +93,7 @@ function App({ onLogout, role, userId, domains, mfaEnabled, mfaManaged, mfaEnrol
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [installed, setInstalled] = useState(() => window.matchMedia('(display-mode: standalone)').matches || Boolean((navigator as Navigator & { standalone?: boolean }).standalone))
   const [updateAvailable, setUpdateAvailable] = useState(false)
-  // A polling response that started before an agenda edit must never overwrite the edit.
-  const agendaMutationVersion = useRef(0)
+  const agendaSync = useRef(new AgendaSync())
   const agent = agents[activeAgent]
   const canViewLeads = !mfaEnrollmentRequired && (role === 'admin' || Boolean(domains?.includes('sales')))
   const canViewSecondBrain = !mfaEnrollmentRequired && role === 'admin'
@@ -153,7 +153,8 @@ function App({ onLogout, role, userId, domains, mfaEnabled, mfaManaged, mfaEnrol
     let cancelled = false
     if (mfaEnrollmentRequired) return () => { cancelled = true }
     async function hydrate() {
-      const requestVersion = agendaMutationVersion.current
+      const requestVersion = agendaSync.current.capture()
+      if (requestVersion === null) return
       try {
         const [agendaResponse, messagesResponse] = await Promise.all([fetch('/api/operational-agenda'), fetch(`/api/messages?agentId=${activeAgent}`)])
         if (!agendaResponse.ok) {
@@ -163,7 +164,7 @@ function App({ onLogout, role, userId, domains, mfaEnabled, mfaManaged, mfaEnrol
         if (!messagesResponse.ok) throw new Error('No se pudo cargar la sesión de Synapse')
         const agenda = await agendaResponse.json() as { items: AgendaItem[] }
         const apiMessages = await messagesResponse.json() as { messages: ApiMessage[] }
-        if (cancelled || requestVersion !== agendaMutationVersion.current) return
+        if (cancelled || !agendaSync.current.canApply(requestVersion)) return
         const activeAgents = agenda.items.filter((item) => item.kind !== 'milestone' && item.status !== 'done' && item.status !== 'cancelled').map((item) => item.agentId)
         setAgendaItems(agenda.items)
         setRequests(agenda.items.filter((item) => item.kind === 'request'))
@@ -175,7 +176,7 @@ function App({ onLogout, role, userId, domains, mfaEnabled, mfaManaged, mfaEnrol
         setApiReady(true)
         setApiError('')
       } catch (cause) {
-        if (!cancelled) { setApiReady(false); setApiError(cause instanceof Error ? cause.message : 'API no disponible') }
+        if (!cancelled && agendaSync.current.canApply(requestVersion)) { setApiReady(false); setApiError(cause instanceof Error ? cause.message : 'API no disponible') }
       }
     }
     void hydrate()
@@ -206,48 +207,54 @@ function App({ onLogout, role, userId, domains, mfaEnabled, mfaManaged, mfaEnrol
   }
 
   async function updateAgendaStatus(itemId: string, status: AgendaItem['status'], comment: string) {
-    agendaMutationVersion.current += 1
-    const response = await fetch(`/api/operational-agenda/items/${encodeURIComponent(itemId)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status, comment }) })
-    const data = await response.json() as { item?: AgendaItem; error?: string }
-    if (!response.ok || !data.item) throw new Error(data.error ?? 'No se pudo actualizar la tarea')
-    setAgendaItems((current) => current.map((item) => item.id === itemId ? data.item! : item))
-    setRequests((current) => current.map((item) => item.id === itemId ? data.item! : item))
+    return agendaSync.current.mutate(async () => {
+      const response = await fetch(`/api/operational-agenda/items/${encodeURIComponent(itemId)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status, comment }) })
+      const data = await response.json() as { item?: AgendaItem; error?: string }
+      if (!response.ok || !data.item) throw new Error(data.error ?? 'No se pudo actualizar la tarea')
+      setAgendaItems((current) => current.map((item) => item.id === itemId ? data.item! : item))
+      setRequests((current) => current.map((item) => item.id === itemId ? data.item! : item))
+    })
   }
 
   async function createAgendaItem(input: { title: string; domain: string; projectId: string; agentId: AgentId; priority: ApiRequest['priority']; riskLevel: ApiRequest['riskLevel']; requiresApproval: boolean; startsAt: string | null; dueAt: string | null; nextAction: string }) {
-    agendaMutationVersion.current += 1
-    const response = await fetch('/api/operational-agenda/items', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
-    const data = await response.json() as { item?: AgendaItem; error?: string }
-    if (!response.ok || !data.item) throw new Error(data.error ?? 'No se pudo crear la tarea')
-    setAgendaItems((current) => [...current, data.item!].sort((left, right) => (left.startsAt ?? left.dueAt ?? '').localeCompare(right.startsAt ?? right.dueAt ?? '')))
-    setRequests((current) => [...current, data.item!])
+    return agendaSync.current.mutate(async () => {
+      const response = await fetch('/api/operational-agenda/items', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
+      const data = await response.json() as { item?: AgendaItem; error?: string }
+      if (!response.ok || !data.item) throw new Error(data.error ?? 'No se pudo crear la tarea')
+      setAgendaItems((current) => [...current, data.item!].sort((left, right) => (left.startsAt ?? left.dueAt ?? '').localeCompare(right.startsAt ?? right.dueAt ?? '')))
+      setRequests((current) => [...current, data.item!])
+    })
   }
 
   async function editAgendaItem(itemId: string, input: Record<string, unknown>) {
-    agendaMutationVersion.current += 1
-    const response = await fetch(`/api/operational-agenda/items/${encodeURIComponent(itemId)}/details`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
-    const data = await response.json() as { item?: AgendaItem; error?: string }
-    if (!response.ok || !data.item) throw new Error(data.error ?? 'No se pudo editar la tarea')
-    setAgendaItems((current) => current.map((item) => item.id === itemId ? data.item! : item))
-    setRequests((current) => current.map((item) => item.id === itemId ? data.item! : item))
+    return agendaSync.current.mutate(async () => {
+      const response = await fetch(`/api/operational-agenda/items/${encodeURIComponent(itemId)}/details`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
+      const data = await response.json() as { item?: AgendaItem; error?: string }
+      if (!response.ok || !data.item) throw new Error(data.error ?? 'No se pudo editar la tarea')
+      if ('quadrant' in input && input.quadrant !== null && data.item.eisenhower?.quadrant !== input.quadrant) throw new Error('El servidor no confirmó el cuadrante seleccionado. Vuelve a intentarlo.')
+      setAgendaItems((current) => current.map((item) => item.id === itemId ? data.item! : item))
+      setRequests((current) => current.map((item) => item.id === itemId ? data.item! : item))
+    })
   }
 
   async function deleteAgendaItem(item: AgendaItem) {
-    agendaMutationVersion.current += 1
-    const response = await fetch(`/api/operational-agenda/items/${encodeURIComponent(item.id)}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedTitle: item.title }) })
-    const data = await response.json() as { deleted?: boolean; error?: string }
-    if (!response.ok || !data.deleted) throw new Error(data.error ?? 'No se pudo eliminar la tarea')
-    setAgendaItems((current) => current.filter((entry) => entry.id !== item.id))
-    setRequests((current) => current.filter((entry) => entry.id !== item.id))
+    return agendaSync.current.mutate(async () => {
+      const response = await fetch(`/api/operational-agenda/items/${encodeURIComponent(item.id)}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedTitle: item.title }) })
+      const data = await response.json() as { deleted?: boolean; error?: string }
+      if (!response.ok || !data.deleted) throw new Error(data.error ?? 'No se pudo eliminar la tarea')
+      setAgendaItems((current) => current.filter((entry) => entry.id !== item.id))
+      setRequests((current) => current.filter((entry) => entry.id !== item.id))
+    })
   }
 
   async function approveAgendaItem(itemId: string) {
-    agendaMutationVersion.current += 1
-    const response = await fetch(`/api/requests/${encodeURIComponent(itemId)}/approve`, { method: 'POST' })
-    const data = await response.json() as { request?: ApiRequest; error?: string }
-    if (!response.ok || !data.request) throw new Error(data.error ?? 'No se pudo registrar la aprobación')
-    setAgendaItems((current) => current.map((item) => item.id === itemId ? { ...item, ...data.request!, kind: 'request' } : item))
-    setRequests((current) => current.map((item) => item.id === itemId ? data.request! : item))
+    return agendaSync.current.mutate(async () => {
+      const response = await fetch(`/api/requests/${encodeURIComponent(itemId)}/approve`, { method: 'POST' })
+      const data = await response.json() as { request?: ApiRequest; error?: string }
+      if (!response.ok || !data.request) throw new Error(data.error ?? 'No se pudo registrar la aprobación')
+      setAgendaItems((current) => current.map((item) => item.id === itemId ? { ...item, ...data.request!, kind: 'request' } : item))
+      setRequests((current) => current.map((item) => item.id === itemId ? data.request! : item))
+    })
   }
 
   return <div className="app-shell">
