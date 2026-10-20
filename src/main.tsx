@@ -1,5 +1,6 @@
 import { lazy, StrictMode, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import { ArrowRight } from 'lucide-react'
 import { agents, initialMessages } from './agents'
 import { ChatDock, ChatPanel } from './components/ChatPanel'
 import { AddAgentPanel } from './components/AddAgentPanel'
@@ -30,7 +31,7 @@ type ApiMessage = { id: string; direction: 'user' | 'agent'; text: string; creat
 export type ApiRequest = { id: string; agentId: AgentId; title: string; domain: string; projectId: string | null; priority: 'low' | 'normal' | 'high' | 'urgent'; status: 'pending' | 'in_progress' | 'waiting_approval' | 'blocked' | 'done' | 'cancelled'; riskLevel: 'low' | 'medium' | 'high'; requiresApproval: boolean; approvalConfirmed: boolean; startsAt: string | null; dueAt: string | null; nextAction: string; obsidianNote?: string | null; sourcePath: string | null; sourceDriveFolder: string | null; eisenhower: { quadrant: 'Q1' | 'Q2' | 'Q3' | 'Q4' | null; urgency: 'low' | 'medium' | 'high' | null; importance: 'low' | 'medium' | 'high' | null; urgencyReason: string | null; importanceReason: string | null; sourceTopic: string | null } }
 export type AgendaItem = ApiRequest & { id: string; kind: 'request' | 'commitment' | 'milestone'; requestId: string | null; commitmentId: string | null; createdAt: string; updatedAt: string; lastStatusComment?: { comment: string | null; createdAt: string } | null }
 type AuthRole = 'viewer' | 'operator' | 'approver' | 'admin'
-type AuthState = { configured: boolean; authenticated: boolean; mfaRequired?: boolean; mfaEnabled?: boolean; mfaManaged?: boolean; termsAccepted?: boolean; userId?: string; role?: AuthRole; domains?: string[] }
+type AuthState = { configured: boolean; authenticated: boolean; mfaRequired?: boolean; mfaEnabled?: boolean; mfaManaged?: boolean; termsAccepted?: boolean; userId?: string; role?: AuthRole; domains?: string[]; trialEnabled?: boolean; trialStartedAt?: string | null; trialEndsAt?: string | null; trialExpired?: boolean; trialDaysRemaining?: number | null }
 
 function TermsGate({ onAccepted, onLogout }: { onAccepted: () => void; onLogout: () => void }) {
   const [accepted, setAccepted] = useState(false)
@@ -49,6 +50,11 @@ function TermsGate({ onAccepted, onLogout }: { onAccepted: () => void; onLogout:
   return <main className="auth-screen"><section className="auth-card panel-card"><h1>Antes de continuar</h1><p>Revisa las condiciones de esta versión de pruebas y el tratamiento de datos de Synapse.</p><nav className="legal-links" aria-label="Documentos para revisar"><a href="/legal/terminos.html" target="_blank" rel="noreferrer">Términos de uso</a><a href="/legal/privacidad.html" target="_blank" rel="noreferrer">Privacidad</a><a href="/legal/cookies.html" target="_blank" rel="noreferrer">Cookies</a></nav><label className="terms-check"><input type="checkbox" checked={accepted} onChange={(event) => setAccepted(event.target.checked)} /> He leído y acepto los términos de uso y la política de privacidad.</label>{error && <p role="alert">{error}</p>}<button className="auth-submit" type="button" disabled={!accepted || busy} onClick={() => void submit()}>{busy ? 'Registrando…' : 'Continuar'}</button><button className="logout-button" type="button" onClick={onLogout}>Cerrar sesión</button></section></main>
 }
 
+function TrialExpiredScreen({ onLogout, endsAt }: { onLogout: () => void; endsAt?: string | null }) {
+  const formattedEnd = endsAt ? new Date(endsAt).toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' }) : 'la fecha de vencimiento'
+  return <main className="auth-screen"><section className="auth-card panel-card"><span className="eyebrow">PRUEBA FINALIZADA</span><h1>Tu prueba de 15 días terminó</h1><p>El acceso operativo quedó pausado después del período gratuito, que terminó el {formattedEnd}.</p><p>Si quieres continuar con Synapse, escríbenos y te ayudamos a activar el siguiente paso.</p><a className="auth-submit" href="https://wa.me/573218346407?text=Hola%20Dmente%20Digital%2C%20termin%C3%A9%20la%20prueba%20de%20Synapse%20y%20quiero%20continuar." target="_blank" rel="noreferrer">Continuar por WhatsApp <ArrowRight size={17} /></a><button className="logout-button" type="button" onClick={onLogout}>Cerrar sesión</button></section></main>
+}
+
 function Root() {
   const [auth, setAuth] = useState<AuthState | null>(null)
 
@@ -63,6 +69,7 @@ function Root() {
 
   if (auth === null) return <main className="auth-screen" role="status">Cargando Synapse…</main>
   if (auth.configured && !auth.authenticated) return <LoginScreen onAuthenticated={() => { void fetch('/api/auth/session').then((response) => response.json() as Promise<AuthState>).then(setAuth).catch(() => setAuth({ configured: true, authenticated: false })) }} />
+  if (auth.authenticated && auth.trialExpired) return <TrialExpiredScreen endsAt={auth.trialEndsAt} onLogout={() => void logout()} />
   if (auth.authenticated && !auth.termsAccepted) return <TermsGate onAccepted={() => setAuth({ ...auth, termsAccepted: true })} onLogout={() => void logout()} />
   const mfaEnrollmentRequired = auth?.authenticated === true && auth.role === 'admin' && auth.mfaEnabled !== true
   return <App onLogout={logout} role={auth?.role} userId={auth?.userId} domains={auth?.domains} mfaEnabled={auth?.mfaEnabled} mfaManaged={auth?.mfaManaged} mfaEnrollmentRequired={mfaEnrollmentRequired} />

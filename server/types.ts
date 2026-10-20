@@ -53,6 +53,9 @@ export type UserAccount = {
   passwordSalt: string
   totpSecretEncrypted: string | null
   totpPendingEncrypted: string | null
+  trialEnabled: boolean
+  trialStartedAt: string | null
+  trialEndsAt: string | null
 }
 
 export type Agent = {

@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import path from 'node:path'
 import { URL } from 'node:url'
 import { accessFromRequest, authConfigured, authStatus, beginTotpSetup, clearSession, clearSessionCookie, confirmTotpSetup, disableTotp, hashPassword, login, loginBlocked, mfaEnabledForUser, mfaManagedForUser, recordAuthFailure, revokeUserSessions, sessionFromRequest, setSessionCookie, totpEncryptionConfigured, validateProductionSecurityConfiguration, verifyAccountPasswordAndMfa } from './auth.js'
-import { acceptCurrentTerms, addAudit, addMessage, closeDatabase, completeAccountDataDeletion, confirmRequestApproval, createCommitment, createRequest, createUserAccount, findUserById, findUserByUsername, getAccountDataDeletionRequest, getLatestAgendaStatusComment, getLocalProfile, getRequest, guardianAuthorization, ingestLead, listAgents, listCommitments, listLeads, listMessages, listPendingDataDeletionRequests, listPendingGuardianAuthorizations, listPermissions, listRequests, listUserAccounts, recordAgendaStatusChange, requestAccountDataDeletion, revokeGuardianAuthorization, submitGuardianAuthorization, termsAcceptedAt, updateCommitmentStatus, updateRequestSources, updateRequestStatus, updateUserAccount, verifyGuardianAuthorization } from './db.js'
+import { acceptCurrentTerms, addAudit, addMessage, closeDatabase, completeAccountDataDeletion, confirmRequestApproval, createCommitment, createRequest, createTrialUserAccount, createUserAccount, findUserById, findUserByUsername, getAccountDataDeletionRequest, getLatestAgendaStatusComment, getLocalProfile, getRequest, guardianAuthorization, ingestLead, listAgents, listCommitments, listLeads, listMessages, listPendingDataDeletionRequests, listPendingGuardianAuthorizations, listPermissions, listRequests, listUserAccounts, recordAgendaStatusChange, requestAccountDataDeletion, revokeGuardianAuthorization, submitGuardianAuthorization, termsAcceptedAt, trialStatus, updateCommitmentStatus, updateRequestSources, updateRequestStatus, updateUserAccount, verifyGuardianAuthorization } from './db.js'
 import { buildReply, routeRequest } from './orchestrator.js'
 import { authorizedWriteForDomain, handleMcp } from './mcp.js'
 import { getHermesStatus, isHermesConfigured, requestHermesReply } from './hermes.js'
@@ -36,6 +36,8 @@ function requireSession(req: IncomingMessage, res: ServerResponse, allowedRoles:
   if (!authConfigured()) { send(res, 503, { error: 'Configura la autenticación de Synapse para consultar datos operativos.' }); return null }
   const session = accessFromRequest(req)
   if (!session) { send(res, 401, { error: 'Inicia sesión para consultar datos operativos.' }); return null }
+  const trial = trialStatus(session.userId)
+  if (trial.expired) { send(res, 402, { error: 'Tu prueba gratuita de 15 días terminó.', code: 'TRIAL_EXPIRED', trialEndsAt: trial.endsAt }); return null }
   if (!allowedRoles.includes(session.role)) { send(res, 403, { error: 'Tu rol no permite esta acción.' }); return null }
   if (!allowMfaEnrollment && !termsAcceptedAt(session.userId)) { send(res, 403, { error: 'Acepta los términos y la política de privacidad para continuar.' }); return null }
   if (process.env.NODE_ENV === 'production' && session.role === 'admin' && !mfaEnabledForUser(session.userId) && !allowMfaEnrollment) {
@@ -212,7 +214,30 @@ const server = createServer(async (req, res) => {
       if (!token) return send(res, 401, { error: 'Credenciales inválidas o autenticación no configurada' })
       setSessionCookie(res, token)
       const account = findUserByUsername(text(input.username))
-      return send(res, 200, { authenticated: true, userId: account?.id, role: account?.role, domains: account?.domains, mfaEnabled: account ? mfaEnabledForUser(account.id) : false, mfaManaged: account ? mfaManagedForUser(account.id) : false })
+      const trial = account ? trialStatus(account.id) : null
+      return send(res, 200, { authenticated: true, userId: account?.id, role: account?.role, domains: account?.domains, mfaEnabled: account ? mfaEnabledForUser(account.id) : false, mfaManaged: account ? mfaManagedForUser(account.id) : false, trialEnabled: trial?.enabled, trialStartedAt: trial?.startedAt, trialEndsAt: trial?.endsAt, trialExpired: trial?.expired, trialDaysRemaining: trial?.daysRemaining })
+    }
+    if (req.method === 'POST' && url.pathname === '/api/auth/register') {
+      if (!authConfigured()) return send(res, 503, { error: 'La autenticación de Synapse aún no está configurada.' })
+      const input = await readJsonBody(req)
+      const username = text(input.username).toLowerCase()
+      const name = text(input.name)
+      const password = typeof input.password === 'string' ? input.password : ''
+      if (!/^[a-zA-Z0-9._-]{3,64}$/.test(username) || name.length < 2 || name.length > 120) return send(res, 400, { error: 'Indica un usuario y nombre válidos.' })
+      if (password.length < 12 || password.length > 256) return send(res, 400, { error: 'La contraseña debe tener entre 12 y 256 caracteres.' })
+      if (input.acceptedTerms !== true) return send(res, 400, { error: 'Debes aceptar los términos y la política de privacidad.' })
+      const startedAt = new Date()
+      const endsAt = new Date(startedAt.getTime() + 15 * 24 * 60 * 60 * 1000)
+      const credentials = hashPassword(password)
+      const created = createTrialUserAccount({ id: randomUUID(), username, name, domains: validDomains, acceptedTermsAt: startedAt.toISOString(), trialStartedAt: startedAt.toISOString(), trialEndsAt: endsAt.toISOString(), ...credentials })
+      if (!created) return send(res, 409, { error: 'Ya existe una cuenta con ese usuario.' })
+      const account = findUserByUsername(username)
+      if (!account) return send(res, 500, { error: 'No se pudo preparar la cuenta de prueba.' })
+      const token = login(username, password, clientAddress(req))
+      if (!token) return send(res, 500, { error: 'La cuenta fue creada, pero no se pudo iniciar la sesión.' })
+      setSessionCookie(res, token)
+      addAudit({ action: 'trial_account_created', summary: `Prueba de 15 días iniciada para ${username}`, source: 'public-registration', actorId: account.id })
+      return send(res, 201, { authenticated: true, userId: account.id, role: account.role, domains: account.domains, trialEnabled: true, trialStartedAt: startedAt.toISOString(), trialEndsAt: endsAt.toISOString(), trialExpired: false, trialDaysRemaining: 15, termsAccepted: true })
     }
     if (req.method === 'POST' && url.pathname === '/api/auth/passkey/options') {
       const address = clientAddress(req)

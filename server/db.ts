@@ -34,6 +34,9 @@ db.exec(`
     totp_secret_enc TEXT,
     totp_pending_enc TEXT,
     terms_accepted_at TEXT,
+    trial_enabled INTEGER NOT NULL DEFAULT 0,
+    trial_started_at TEXT,
+    trial_ends_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
@@ -292,6 +295,9 @@ const accountColumns = new Set((db.prepare('PRAGMA table_info(user_accounts)').a
 if (!accountColumns.has('totp_secret_enc')) db.exec('ALTER TABLE user_accounts ADD COLUMN totp_secret_enc TEXT')
 if (!accountColumns.has('totp_pending_enc')) db.exec('ALTER TABLE user_accounts ADD COLUMN totp_pending_enc TEXT')
 if (!accountColumns.has('terms_accepted_at')) db.exec('ALTER TABLE user_accounts ADD COLUMN terms_accepted_at TEXT')
+if (!accountColumns.has('trial_enabled')) db.exec('ALTER TABLE user_accounts ADD COLUMN trial_enabled INTEGER NOT NULL DEFAULT 0')
+if (!accountColumns.has('trial_started_at')) db.exec('ALTER TABLE user_accounts ADD COLUMN trial_started_at TEXT')
+if (!accountColumns.has('trial_ends_at')) db.exec('ALTER TABLE user_accounts ADD COLUMN trial_ends_at TEXT')
 
 const messageColumns = new Set((db.prepare('PRAGMA table_info(messages)').all() as { name: string }[]).map((column) => column.name))
 if (!messageColumns.has('domain')) {
@@ -388,7 +394,7 @@ export function getLocalProfile(): Profile {
 }
 
 function accountFromRow(row: Record<string, unknown>): UserAccount {
-  return { id: String(row.id), username: String(row.username), name: String(row.name), role: row.role as UserRole, domains: JSON.parse(String(row.domains_json)) as Domain[], active: Boolean(row.active), passwordHash: String(row.password_hash), passwordSalt: String(row.password_salt), totpSecretEncrypted: row.totp_secret_enc ? String(row.totp_secret_enc) : null, totpPendingEncrypted: row.totp_pending_enc ? String(row.totp_pending_enc) : null }
+  return { id: String(row.id), username: String(row.username), name: String(row.name), role: row.role as UserRole, domains: JSON.parse(String(row.domains_json)) as Domain[], active: Boolean(row.active), passwordHash: String(row.password_hash), passwordSalt: String(row.password_salt), totpSecretEncrypted: row.totp_secret_enc ? String(row.totp_secret_enc) : null, totpPendingEncrypted: row.totp_pending_enc ? String(row.totp_pending_enc) : null, trialEnabled: Boolean(row.trial_enabled), trialStartedAt: row.trial_started_at ? String(row.trial_started_at) : null, trialEndsAt: row.trial_ends_at ? String(row.trial_ends_at) : null }
 }
 
 export function updateUserTotp(id: string, input: { secretEncrypted: string | null; pendingEncrypted: string | null }): boolean {
@@ -458,8 +464,8 @@ export function findUserById(id: string): UserAccount | null {
 }
 
 export function listUserAccounts(): Omit<UserAccount, 'passwordHash' | 'passwordSalt' | 'totpSecretEncrypted' | 'totpPendingEncrypted'>[] {
-  const rows = db.prepare('SELECT id, username, name, role, domains_json, active FROM user_accounts ORDER BY name COLLATE NOCASE').all() as Record<string, unknown>[]
-  return rows.map((row) => ({ id: String(row.id), username: String(row.username), name: String(row.name), role: row.role as UserRole, domains: JSON.parse(String(row.domains_json)) as Domain[], active: Boolean(row.active) }))
+  const rows = db.prepare('SELECT id, username, name, role, domains_json, active, trial_enabled, trial_started_at, trial_ends_at FROM user_accounts ORDER BY name COLLATE NOCASE').all() as Record<string, unknown>[]
+  return rows.map((row) => ({ id: String(row.id), username: String(row.username), name: String(row.name), role: row.role as UserRole, domains: JSON.parse(String(row.domains_json)) as Domain[], active: Boolean(row.active), trialEnabled: Boolean(row.trial_enabled), trialStartedAt: row.trial_started_at ? String(row.trial_started_at) : null, trialEndsAt: row.trial_ends_at ? String(row.trial_ends_at) : null }))
 }
 
 export function requestAccountDataDeletion(userId: string): { id: string; status: string; createdAt: string } {
@@ -558,6 +564,24 @@ export function createUserAccount(input: { id: string; username: string; name: s
     if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) return false
     throw error
   }
+}
+
+export function createTrialUserAccount(input: { id: string; username: string; name: string; domains: Domain[]; passwordHash: string; passwordSalt: string; acceptedTermsAt: string; trialStartedAt: string; trialEndsAt: string }): boolean {
+  try {
+    db.prepare('INSERT INTO user_accounts (id, username, name, role, domains_json, active, password_hash, password_salt, terms_accepted_at, trial_enabled, trial_started_at, trial_ends_at, created_at, updated_at) VALUES (?, ?, ?, \'viewer\', ?, 1, ?, ?, ?, 1, ?, ?, ?, ?)')
+      .run(input.id, input.username, input.name, JSON.stringify(input.domains), input.passwordHash, input.passwordSalt, input.acceptedTermsAt, input.trialStartedAt, input.trialEndsAt, input.trialStartedAt, input.trialStartedAt)
+    return true
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) return false
+    throw error
+  }
+}
+
+export function trialStatus(userId: string): { enabled: boolean; startedAt: string | null; endsAt: string | null; expired: boolean; daysRemaining: number | null } {
+  const account = findUserById(userId)
+  if (!account?.trialEnabled || !account.trialStartedAt || !account.trialEndsAt) return { enabled: false, startedAt: null, endsAt: null, expired: false, daysRemaining: null }
+  const remainingMs = new Date(account.trialEndsAt).getTime() - Date.now()
+  return { enabled: true, startedAt: account.trialStartedAt, endsAt: account.trialEndsAt, expired: remainingMs <= 0, daysRemaining: Math.max(0, Math.ceil(remainingMs / (24 * 60 * 60 * 1000))) }
 }
 
 export function updateUserAccount(id: string, input: { name?: string; role?: UserRole; domains?: Domain[]; active?: boolean; passwordHash?: string; passwordSalt?: string }): boolean {
