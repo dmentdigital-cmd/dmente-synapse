@@ -1,6 +1,6 @@
 /* Runs independently of the React bundle so a failed module cannot hide recovery. */
 (() => {
-  const reloadKey = 'synapse-startup-reload-v1'
+  const reloadKey = 'synapse-startup-reload-v2'
   const root = () => document.getElementById('root')
   const hasApplication = () => Boolean(root()?.children.length && !root().querySelector('[data-synapse-startup]'))
   let recoveryRunning = false
@@ -42,7 +42,10 @@
     await bounded(async () => {
       if ('serviceWorker' in navigator) {
         const registration = await navigator.serviceWorker.getRegistration('/')
-        await registration?.update()
+        if (registration) {
+          await registration.unregister()
+          await registration.update().catch(() => undefined)
+        }
       }
     })
     if (automatic) reloadOnce()
@@ -88,6 +91,6 @@
   window.setTimeout(showRecovery, 10000)
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.addEventListener('controllerchange', reloadOnce)
-    void navigator.serviceWorker.register('/sw.js?v=4', { updateViaCache: 'none' }).then(registration => registration.update()).catch(() => undefined)
+    void navigator.serviceWorker.register('/sw.js?v=5', { updateViaCache: 'none' }).then(registration => registration.update()).catch(() => undefined)
   }
 })()
