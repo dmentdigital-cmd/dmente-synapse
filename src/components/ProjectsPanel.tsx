@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, Building2, ChevronDown, ChevronRight, FolderKanban, Plus, RefreshCw } from 'lucide-react'
+import { ArrowLeft, Building2, ChevronDown, ChevronRight, FolderKanban, HeartPulse, Plus, RefreshCw } from 'lucide-react'
 import { ProjectDetail } from './projects/ProjectDetail'
+import { AccountHealthPanel } from './AccountHealthPanel'
 import { ClientForm, ProjectForm } from './projects/ProjectForms'
 import { call, canWrite, dayLabel, domainLabels, healthLabels, plural, projectStatusLabels, type Client, type ProjectDetailData, type ProjectStatus, type ProjectSummary, type Role } from './projects/model'
 
@@ -31,6 +32,7 @@ export function ProjectsPanel({ role, onClose }: { role?: Role; onClose: () => v
   const [error, setError] = useState('')
   const [detailError, setDetailError] = useState('')
   const [dialog, setDialog] = useState<'project' | 'client' | null>(null)
+  const [showAccountHealth, setShowAccountHealth] = useState(false)
   const detailRef = useRef<HTMLDivElement>(null)
   const writer = canWrite(role)
 
@@ -96,11 +98,13 @@ export function ProjectsPanel({ role, onClose }: { role?: Role; onClose: () => v
     </button>
   }
 
+  if (showAccountHealth) return <AccountHealthPanel role={role} onClose={() => setShowAccountHealth(false)} />
   return <section className="leads-panel projects-panel" aria-labelledby="projects-heading">
     <header className="leads-heading">
       <div><span className="eyebrow">DMENTE SYNAPSE · SEGUIMIENTO</span><h1 id="projects-heading">Proyectos</h1><p>El cronograma, los bloqueos y el siguiente paso de cada proyecto.</p></div>
       <div className="leads-heading-actions">
         {writer && <button type="button" className="projects-primary" onClick={() => setDialog('project')}><Plus size={16} /> Nuevo proyecto</button>}
+        <button type="button" onClick={() => setShowAccountHealth(true)}><HeartPulse size={16} /> Salud de cuentas</button>
         {writer && clients && <button type="button" onClick={() => setDialog('client')}><Building2 size={16} /> Nuevo cliente</button>}
         <button type="button" onClick={reload} disabled={loading} aria-label="Actualizar proyectos"><RefreshCw size={16} /> Actualizar</button>
         <button type="button" onClick={onClose}><ArrowLeft size={16} /> Volver</button>

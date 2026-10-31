@@ -14,6 +14,7 @@ import type { Domain, UserRole } from './types.js'
 import { editAgendaRecord, removeAgendaRecord } from './agenda-mutations.js'
 import { agendaMilestoneItems } from './projects.js'
 import { handleProjectRoutes } from './project-routes.js'
+import { handleAccountHealthRoutes } from './account-health-routes.js'
 import { startDailyProjectReportScheduler } from './daily-project-report.js'
 import { inferQuadrant } from './eisenhower.js'
 import { handleSecondBrainRoutes } from './second-brain-routes.js'
@@ -112,6 +113,7 @@ const server = createServer(async (req, res) => {
     if (url.pathname === '/mcp') return handleMcp(req, res)
     if (await handleSecondBrainRoutes(req, res, url, { send, requireSession })) return
     if (/^\/api\/(projects|clients|project-digest|project-daily-report)(\/|$)/.test(url.pathname) && await handleProjectRoutes(req, res, url, { send, requireSession, inDomain })) return
+    if (/^\/api\/account-health(\/|$)/.test(url.pathname) && await handleAccountHealthRoutes(req, res, url, { send, requireSession, inDomain })) return
     if (req.method === 'GET' && url.pathname === '/api/leads') {
       const session = requireSession(req, res); if (!session) return
       if (!inDomain(session, 'sales')) return send(res, 403, { error: 'No tienes acceso a los leads de ventas.' })
