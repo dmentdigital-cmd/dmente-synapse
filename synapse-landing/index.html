@@ -1,16 +1,9 @@
 <!doctype html>
-<!--
-Surface: public product landing, Persuade. Inherits the Synapse navy/teal identity and supplied logo.
-Story: scattered work becomes an accountable next step; explore an illustrative office, then request a demo.
-First viewport: large left-aligned proposition, WhatsApp action, and a readable working office on the right.
-Signature: three views of one illustrative operation; a selected project explains the next human decision.
-All demo names, counts, progress and timestamps are synthetic. No client or performance claims.
--->
 <html lang="es-CO">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#071722">
+  <meta name="theme-color" content="#191714">
   <title>Dmente Synapse | Su oficina operativa con IA</title>
   <meta name="description" content="Coordine proyectos, tareas, clientes y agentes de IA desde un solo sistema. Prioridades claras, aprobaciones y control humano. Conozca Dmente Synapse.">
   <meta property="og:type" content="website">
@@ -53,53 +46,65 @@ All demo names, counts, progress and timestamps are synthetic. No client or perf
         <a href="#how-it-works">Cómo funciona</a>
         <a href="#human-control">Control humano</a>
         <a href="#proposal">Propuesta</a>
-        <a class="nav-contact" href="#contact">Hablemos <svg aria-hidden="true" focusable="false" class="icon"><use href="#i-arrow"/></svg></a>
+
       </nav>
+      <a class="login-link" href="https://synapse.dmentedigital.co/" aria-label="Ingresar a Synapse">Ingresar <span>a Synapse</span> <svg aria-hidden="true" class="icon"><use href="#i-arrow"/></svg></a>
     </div>
   </header>
 
   <main id="main">
-    <section class="hero container" aria-labelledby="hero-title">
-      <div class="hero-copy">
-        <h1 id="hero-title">Su equipo. <br>Sus proyectos. <br><span>Una sola oficina.</span></h1>
-        <p class="hero-description">Coordine sus proyectos y su equipo de IA desde un solo lugar. Prioridades claras, agentes de apoyo y control humano para decidir.</p>
-        <div class="hero-actions">
-          <a class="button button-primary" href="https://synapse.dmentedigital.co/?trial=1">Pruébelo 15 días <svg aria-hidden="true" focusable="false" class="icon"><use href="#i-arrow"/></svg></a>
-          <a class="text-link" data-contact="demo" href="https://wa.me/573218346407?text=Hola%2C%20quiero%20agendar%20una%20demostraci%C3%B3n%20de%20Dmente%20Synapse." target="_blank" rel="noopener noreferrer">Prefiero una demostración por WhatsApp <svg aria-hidden="true" focusable="false" class="icon"><use href="#i-arrow"/></svg></a>
-          <a class="text-link" href="#office">Explore la oficina <svg aria-hidden="true" focusable="false" class="icon"><use href="#i-grid"/></svg></a>
-        </div>
-        <p class="hero-note"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-shield"/></svg> La IA prepara. Usted decide.</p>
-      </div>
-
-      <div class="office-preview" aria-label="Vista ilustrativa de la oficina de Synapse">
-        <div class="preview-topbar"><div class="window-dots" aria-hidden="true"><i></i><i></i><i></i></div><span>Oficina operativa</span><span class="sample-label">DEMO ILUSTRATIVA</span></div>
-        <div class="preview-shell">
-          <aside class="preview-rail" aria-hidden="true"><span class="rail-mark">S.</span><svg class="icon active"><use href="#i-grid"/></svg><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-calendar"/></svg><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-inbox"/></svg><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-flow"/></svg><span class="rail-end"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-shield"/></svg></span></aside>
-          <div class="preview-content">
-            <div class="preview-heading"><div><p>SU OPERACIÓN, EN PERSPECTIVA</p><h2>Todo tiene un próximo paso.</h2></div><span class="avatar" aria-label="Equipo de demostración">EQ</span></div>
-            <div class="preview-summary"><span><strong>03</strong> proyectos de ejemplo</span><span><i class="dot amber"></i> 1 decisión pendiente</span></div>
-            <div class="preview-project"><div><i class="dot teal"></i><strong>Lanzamiento de marca</strong><span class="status teal-text">En curso</span></div><p>Próximo paso: revisar propuesta visual</p><div class="progress-track"><span style="--progress:72%;"></span></div><footer><span>Diseño · Hito 3 de 4</span><strong>72 %</strong></footer></div>
-            <div class="preview-project"><div><i class="dot amber"></i><strong>Sitio web corporativo</strong><span class="status amber-text">Por revisar</span></div><p>Próximo paso: aprobar estructura</p><div class="progress-track amber-track"><span style="--progress:45%;"></span></div><footer><span>Desarrollo · Hito 2 de 4</span><strong>45 %</strong></footer></div>
-            <div class="preview-bottom"><div class="preview-today"><span class="small-label">EN LA AGENDA</span><strong><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-calendar"/></svg> Revisión de prioridades</strong><p>Equipo · Hoy, 9:00 a. m.</p></div><div class="preview-approval"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-shield"/></svg><div><strong>Esperando su aprobación</strong><p>La propuesta está preparada.</p></div></div></div>
+    <section class="hero-stage" aria-labelledby="hero-title">
+      <div class="hero container">
+        <div class="hero-copy">
+          <h1 id="hero-title">Que el trabajo<br> <span>siga avanzando.</span></h1>
+          <p class="hero-description">Dmente Synapse reúne proyectos, agenda y agentes de IA en una oficina operativa. Vea qué está bloqueado, quién tiene el próximo paso y qué espera su aprobación.</p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="https://synapse.dmentedigital.co/?trial=1">Pruebe 15 días gratis <svg aria-hidden="true" class="icon"><use href="#i-arrow"/></svg></a>
+            <a class="button button-outline" href="#office">Explore la demo <svg aria-hidden="true" class="icon"><use href="#i-grid"/></svg></a>
           </div>
         </div>
-        <p class="preview-caption"><i class="dot teal"></i> Personas, proyectos y agentes conectados.<span>Datos ficticios</span></p>
+        <figure class="kinetic-figure">
+          <canvas class="kinetic-canvas" aria-hidden="true"></canvas>
+          <figcaption><span>Proyectos, agentes y equipo</span><button class="motion-toggle" type="button" hidden>Pausar movimiento</button></figcaption>
+        </figure>
+        <a class="scroll-cue" href="#how-it-works"><svg aria-hidden="true" class="icon"><use href="#i-arrow"/></svg> Vea cómo fluye el trabajo</a>
       </div>
     </section>
 
-    <div class="context-strip container"><p>Una oficina para coordinar. <br><strong>Un equipo para decidir.</strong></p><div><span>Proyectos con contexto</span><span>Agentes con reglas</span><span>Decisiones con registro</span></div></div>
-
-    <section class="problem-section section container" aria-labelledby="problem-title">
-      <div class="section-intro"><h2 id="problem-title">El trabajo avanza. <br>¿Y la información?</h2><p>Un acuerdo en un chat. Una tarea en una nota. Una aprobación perdida entre correos. Cuando todo está disperso, saber qué sigue se convierte en otra tarea.</p></div>
-      <div class="problem-solution">
-        <div class="scattered-work"><h3>Cuando falta un punto de encuentro</h3><ul><li><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-chat"/></svg> «¿En qué quedó este proyecto?»</li><li><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-users"/></svg> «¿Quién se encarga de esto?»</li><li><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-clock"/></svg> «¿Ya aprobaron la propuesta?»</li><li><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-flow"/></svg> «¿Qué puede hacer este agente?»</li></ul></div>
-        <div class="connected-work"><span class="connection-mark" aria-hidden="true"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-arrow"/></svg></span><div><h3>Un lugar para ver qué sigue.</h3><p>Dmente Synapse es nuestra oficina operativa con IA: nos ayuda a coordinar proyectos, tareas, clientes y agentes desde un solo sistema.</p><p class="solution-detail">Cada solicitud con contexto. Cada proyecto con una próxima acción. Cada decisión sensible con una persona responsable.</p></div></div>
+    <section class="story-section section" id="how-it-works" aria-labelledby="how-title">
+      <div class="container">
+        <div class="section-intro">
+          <h2 id="how-title">De una solicitud <span>a una decisión.</span></h2>
+          <p>Cuando el trabajo se reparte entre chats, correos y notas, cuesta saber quién tiene el siguiente paso. Así lo organiza Synapse, de principio a fin.</p>
+        </div>
+        <div class="story-layout">
+          <ol class="story-steps">
+            <li data-story-step="0"><span class="story-number" aria-hidden="true">01</span><h3>Defina el trabajo y sus reglas.</h3><p>Una solicitud para compartir una propuesta queda vinculada al proyecto, al hito y a la persona responsable.</p><a class="text-link" href="#office" data-open-tab="tab-projects">Ver proyectos en la demo <svg aria-hidden="true" class="icon"><use href="#i-arrow"/></svg></a></li>
+            <li data-story-step="1"><span class="story-number" aria-hidden="true">02</span><h3>Revise la solicitud con contexto.</h3><p>El agente de diseño prepara el resumen y clasifica la solicitud. El equipo tiene a la vista la prioridad y el riesgo antes de actuar.</p><a class="text-link" href="#office" data-open-tab="tab-requests">Ver solicitudes en la demo <svg aria-hidden="true" class="icon"><use href="#i-arrow"/></svg></a></li>
+            <li data-story-step="2"><span class="story-number" aria-hidden="true">03</span><h3>Tome la decisión y deje registro.</h3><p>La persona responsable revisa la propuesta y decide. La bitácora conserva la decisión y su contexto.</p><a class="text-link" href="#human-control">Ver el flujo de aprobación <svg aria-hidden="true" class="icon"><use href="#i-arrow"/></svg></a></li>
+          </ol>
+          <div class="story-visual" aria-hidden="true">
+            <div class="story-console" data-stage="0">
+              <div class="console-bar"><span><i></i> Solicitud de ejemplo</span><span>SN / 024</span></div>
+              <div class="console-body">
+                <span class="console-caption">Lanzamiento de marca</span>
+                <strong>Compartir propuesta visual</strong>
+                <div class="console-rail">
+                  <span><svg class="icon"><use href="#i-grid"/></svg>Proyecto</span>
+                  <span><svg class="icon"><use href="#i-flow"/></svg>Agente</span>
+                  <span><svg class="icon"><use href="#i-shield"/></svg>Equipo</span>
+                </div>
+                <div class="console-event"><span data-story-status>Solicitud asignada al equipo de diseño</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
 
     <section class="office-section section" id="office" aria-labelledby="office-title">
       <div class="container">
-        <div class="section-intro"><h2 id="office-title">Vea el conjunto. <br><span>Decida el próximo paso.</span></h2><div><p>Proyectos, agenda y solicitudes se encuentran en una misma oficina operativa.</p><p class="small-copy">Explore esta demostración. Los datos y las acciones son ficticios; no se conectan a su operación.</p></div></div>
+        <div class="section-intro"><h2 id="office-title">Su oficina, a la vista. <br><span>Decida qué sigue.</span></h2><div><p>Proyectos, agenda y solicitudes se encuentran en una misma oficina operativa.</p><p class="small-copy">Explore esta demostración. Los datos y las acciones son ficticios; no se conectan a su operación.</p></div></div>
         <div class="demo-board">
           <div class="demo-toolbar"><div class="demo-brand"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-grid"/></svg><strong>Mi oficina</strong><span>Ejemplo interactivo</span></div><span class="demo-team"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-users"/></svg> Equipo de demostración</span></div>
           <div class="demo-tabs" role="tablist" aria-label="Vistas de la demostración">
@@ -137,17 +142,15 @@ All demo names, counts, progress and timestamps are synthetic. No client or perf
       <article class="feature-group"><svg class="feature-icon icon"><use href="#i-shield"/></svg><h3>Las decisiones, con registro.</h3><dl><div><dt>Aprobaciones registradas</dt><dd>La revisión de acciones sensibles forma parte del proceso.</dd></div><div><dt>Trazabilidad</dt><dd>Una bitácora de quién hizo qué y cuándo, para seguir el hilo del trabajo.</dd></div><div><dt>Roles y permisos</dt><dd>Acceso según responsabilidades: cada persona ve lo que le corresponde.</dd></div></dl></article></div>
     </section>
 
-    <section class="how-section section" id="how-it-works" aria-labelledby="how-title"><div class="container"><div class="section-intro"><h2 id="how-title">Del contexto <br>a la próxima acción.</h2><p>Un proceso compartido para que personas y agentes trabajen con prioridades y responsabilidades claras.</p></div><ol class="steps"><li><span class="step-number">01</span><h3>Defina el trabajo <br>y sus reglas.</h3><p>Organice proyectos, responsables y agentes. Establezca permisos y qué acciones requieren aprobación.</p></li><li><span class="step-number">02</span><h3>Reciba solicitudes <br>con contexto.</h3><p>Las solicitudes se clasifican por proyecto, prioridad y riesgo para preparar la revisión del equipo.</p></li><li><span class="step-number">03</span><h3>Revise, apruebe <br>y coordine.</h3><p>El equipo aclara lo pendiente, toma decisiones y establece la próxima acción. La actividad queda registrada.</p></li></ol></div></section>
-
     <section class="control-section section container" id="human-control" aria-labelledby="control-title"><div class="control-copy"><svg class="control-icon icon"><use href="#i-shield"/></svg><h2 id="control-title">Inteligencia para preparar. <br><span>Criterio humano para decidir.</span></h2><blockquote>La IA prepara, clasifica, resume y sugiere. Las acciones sensibles requieren tu aprobación.</blockquote><p>Este es el principio rector de Synapse. Los agentes apoyan la operación dentro de reglas, responsables y permisos definidos.</p><a class="text-link" href="#faq-control">Conozca cómo se aplica <svg aria-hidden="true" focusable="false" class="icon"><use href="#i-arrow"/></svg></a></div><div class="approval-flow" aria-label="Flujo ilustrativo de una aprobación"><div class="flow-stage"><span class="flow-node"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-flow"/></svg></span><div><span class="small-label">AGENTE DE APOYO</span><h3>Prepara una propuesta</h3><p>Clasifica, resume y sugiere el siguiente paso.</p></div></div><div class="flow-stage human-stage"><span class="flow-node"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-users"/></svg></span><div><span class="small-label">PERSONA RESPONSABLE</span><h3>Revisa y decide</h3><p>Aprueba, pide ajustes o detiene la acción sensible.</p><span class="approval-stamp"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-check"/></svg> Requiere aprobación humana</span></div></div><div class="flow-stage"><span class="flow-node"><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-clock"/></svg></span><div><span class="small-label">BITÁCORA</span><h3>Conserva el contexto</h3><p>Quién hizo qué y cuándo, para seguir cada decisión.</p></div></div></div></section>
 
     <section class="audience-section section container" aria-labelledby="audience-title"><div class="section-intro"><h2 id="audience-title">Para equipos que llevan <br>más de un frente.</h2><p>Cuando coordinar proyectos y personas exige una perspectiva común.</p></div><div class="audience-list"><article><h3>Agencias y consultoras</h3><p>Proyectos de varios clientes, entregables y aprobaciones que necesitan seguimiento.</p></article><article><h3>Startups y equipos</h3><p>Prioridades que cambian y responsabilidades que deben quedar claras.</p></article><article><h3>Empresas con agentes de IA</h3><p>Agentes que necesitan trabajar dentro de reglas, permisos y revisiones humanas.</p></article></div></section>
 
     <section class="proposal-section section" id="proposal" aria-labelledby="proposal-title"><div class="container proposal-layout"><div><span class="offer-label">OFERTA DE INTRODUCCIÓN</span><h2 id="proposal-title">Primero, su operación. <br>Después, la propuesta.</h2><p>Conversemos sobre sus proyectos, su equipo y lo que necesita coordinar. Con ese contexto, definimos el alcance de Synapse para su organización.</p><a class="button button-primary" data-contact="proposal" href="https://wa.me/573218346407?text=Hola%2C%20quiero%20solicitar%20una%20propuesta%20de%20Dmente%20Synapse%20para%20mi%20equipo." target="_blank" rel="noopener noreferrer">Solicite una propuesta <svg aria-hidden="true" focusable="false" class="icon"><use href="#i-arrow"/></svg></a></div><div class="proposal-scope"><div class="trial-offer"><span class="trial-days">15 días</span><div><strong>Pruébelo gratis.</strong><p>Conozca Synapse en su operación y decida con calma.</p></div></div><p class="trial-terms">Sin tarjeta de crédito. Sin renovación automática. Si no continúa, no paga ni queda obligado a contratar.</p><h3>Una propuesta con alcance definido</h3><ul><li><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-check"/></svg>Proyectos, equipo y roles</li><li><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-check"/></svg>Agentes y reglas de aprobación</li><li><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-check"/></svg>Integraciones necesarias</li><li><svg aria-hidden="true" focusable="false" class="icon"><use href="#i-check"/></svg>Configuración y acompañamiento por acordar</li></ul><p>El precio, los servicios y las condiciones se establecen en la propuesta comercial. No se realizan pagos en esta página.</p></div></div></section>
 
-    <section class="faq-section section container" id="faq" aria-labelledby="faq-title"><div><h2 id="faq-title">Antes de dar <br>el siguiente paso.</h2><p>Lo que conviene tener claro sobre Synapse.</p><a class="text-link" href="mailto:info@dmentedigital.co">Escríbanos su pregunta <svg aria-hidden="true" focusable="false" class="icon"><use href="#i-arrow"/></svg></a></div><div class="faq-list"><details><summary>¿Es una herramienta externa o la desarrollan ustedes?</summary><p>Dmente Synapse es un producto de Dmente Digital. Coordinamos su implementación y definimos con su equipo el alcance de configuración, agentes e integraciones.</p></details><details><summary>¿Dónde viven mis datos?</summary><p>La documentación de la versión de pruebas indica alojamiento en una VPS y deja pendientes de verificación el proveedor y la ubicación del almacenamiento. Antes de incorporar datos de su organización, estos detalles, los servicios de IA involucrados y las condiciones de tratamiento deben quedar definidos para su implementación.</p></details><details><summary>¿Puedo tener mis propios agentes de IA?</summary><p>Synapse contempla agentes especializados. En la propuesta se define qué agentes necesita, sus fuentes de contexto, sus permisos y las integraciones disponibles. Cada conexión requiere configuración y validación de su alcance.</p></details><details><summary>¿Es multiusuario con permisos?</summary><p>Los roles y permisos forman parte de Synapse. El acceso se organiza según las responsabilidades de cada persona; la configuración concreta se acuerda para su equipo.</p></details><details id="faq-control"><summary>¿Qué control tengo sobre lo que hace la IA?</summary><p>El principio es: «La IA prepara, clasifica, resume y sugiere. Las acciones sensibles requieren tu aprobación». Las reglas, responsables y permisos se definen en la implementación. Las aprobaciones y la actividad tienen registro para dar seguimiento a las decisiones.</p></details><details><summary>¿Se conecta con las herramientas que ya usamos?</summary><p>El alcance contempla Obsidian, Google Calendar y estado de proyectos. Las conexiones que necesita su organización se revisan durante el diagnóstico. No se presuponen integraciones adicionales ni se conectan sus cuentas desde esta landing.</p></details><details><summary>¿Cuánto cuesta y cómo comienzo?</summary><p>El precio se define en una propuesta comercial según el alcance. Puede solicitar una demostración por WhatsApp al +57 321 834 6407 para conversar sobre sus procesos y necesidades.</p></details></div></section>
+    <section class="faq-section section container" id="faq" aria-labelledby="faq-title"><div><h2 id="faq-title">Antes de dar <br>el siguiente paso.</h2><p>Lo que conviene tener claro sobre Synapse.</p><a class="text-link" href="mailto:info@dmentedigital.co">Escríbanos su pregunta <svg aria-hidden="true" focusable="false" class="icon"><use href="#i-arrow"/></svg></a></div><div class="faq-list"><details><summary>¿Es una herramienta externa o la desarrollan ustedes?</summary><p>Dmente Synapse es un producto de Dmente Digital. Coordinamos su implementación y definimos con su equipo el alcance de configuración, agentes e integraciones.</p></details><details><summary>¿Dónde viven mis datos?</summary><p>La documentación de la versión de pruebas indica alojamiento en una VPS y deja pendientes de verificación el proveedor y la ubicación del almacenamiento. Antes de incorporar datos de su organización, estos detalles, los servicios de IA involucrados y las condiciones de tratamiento deben quedar definidos para su implementación.</p></details><details><summary>¿Puedo tener mis propios agentes de IA?</summary><p>Synapse contempla agentes especializados. En la propuesta se define qué agentes necesita, sus fuentes de contexto, sus permisos y las integraciones disponibles. Cada conexión requiere configuración y validación de su alcance.</p></details><details><summary>¿Es multiusuario con permisos?</summary><p>Los roles y permisos forman parte de Synapse. El acceso se organiza según las responsabilidades de cada persona; la configuración concreta se acuerda para su equipo.</p></details><details id="faq-control"><summary>¿Qué control tengo sobre lo que hace la IA?</summary><p>«La IA prepara, clasifica, resume y sugiere. Las acciones sensibles requieren tu aprobación». Las reglas, responsables y permisos se definen en la implementación. Las aprobaciones y la actividad tienen registro para dar seguimiento a las decisiones.</p></details><details><summary>¿Se conecta con las herramientas que ya usamos?</summary><p>El alcance contempla Obsidian, Google Calendar y estado de proyectos. Las conexiones que necesita su organización se revisan durante el diagnóstico. No se presuponen integraciones adicionales ni se conectan sus cuentas desde esta landing.</p></details><details><summary>¿Cuánto cuesta y cómo comienzo?</summary><p>El precio se define en una propuesta comercial según el alcance. Puede solicitar una demostración por WhatsApp al +57 321 834 6407 para conversar sobre sus procesos y necesidades.</p></details></div></section>
 
-    <section class="contact-section container" id="contact" aria-labelledby="contact-title"><div class="contact-brand" aria-hidden="true"><img src="./assets/synapse-brand.webp" alt="" width="640" height="640" loading="lazy"></div><div class="contact-copy"><h2 id="contact-title">Su próxima decisión: <br><span>conocer Synapse.</span></h2><p>Muéstrenos cómo trabaja su equipo. Conversemos sobre cómo coordinarlo desde una sola oficina.</p><p class="contact-offer"><strong>15 días gratis</strong> · Sin tarjeta de crédito · Sin renovación automática</p><a class="button button-primary" href="https://synapse.dmentedigital.co/?trial=1">Empiece su prueba <svg aria-hidden="true" focusable="false" class="icon"><use href="#i-arrow"/></svg></a><p class="contact-note"><a href="https://wa.me/573218346407?text=Hola%2C%20quiero%20agendar%20una%20demostraci%C3%B3n%20de%20Dmente%20Synapse." target="_blank" rel="noopener noreferrer">Prefiero hablar por WhatsApp</a> · +57 321 834 6407</p></div></section>
+    <section class="contact-section" id="contact" aria-labelledby="contact-title"><div class="contact-copy container"><h2 id="contact-title">Ponga en marcha <br><span>su oficina.</span></h2><p>Muéstrenos cómo trabaja su equipo. Conversemos sobre cómo coordinarlo desde una sola oficina.</p><p class="contact-offer"><strong>15 días gratis</strong> · Sin tarjeta de crédito · Sin renovación automática</p><a class="button button-primary" href="https://synapse.dmentedigital.co/?trial=1">Empiece su prueba <svg aria-hidden="true" focusable="false" class="icon"><use href="#i-arrow"/></svg></a><p class="contact-note"><a href="https://wa.me/573218346407?text=Hola%2C%20quiero%20agendar%20una%20demostraci%C3%B3n%20de%20Dmente%20Synapse." target="_blank" rel="noopener noreferrer">Prefiero hablar por WhatsApp</a> · +57 321 834 6407</p></div></section>
   </main>
 
   <footer class="site-footer container"><div class="footer-top"><a class="brand" href="#" aria-label="Dmente Synapse, volver al inicio"><span class="brand-symbol"><img src="./assets/synapse-brand.webp" width="640" height="640" alt="" loading="lazy"></span><span class="brand-wordmark"><span>DMENTE</span><strong>SYNAPSE<span class="brand-period">.</span></strong></span></a><p>No es azar, es propósito.</p><address><a href="mailto:info@dmentedigital.co">info@dmentedigital.co</a><a href="tel:+573218346407">+57 321 834 6407</a><span>Cartagena, Colombia</span></address></div><div class="footer-bottom"><p>© 2026 Dmente Digital. Dmente Synapse es un producto de Dmente Digital.</p><nav aria-label="Información legal"><a href="./legal/privacidad.html">Privacidad</a><a href="./legal/terminos.html">Términos</a></nav></div><p class="legal-version-note">Los documentos legales enlazados corresponden a la versión de pruebas. Las condiciones comerciales se definen en la propuesta.</p></footer>
