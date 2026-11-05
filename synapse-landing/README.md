@@ -35,7 +35,7 @@ npm run build
 - `index.html`: contenido, SEO y estructura semántica.
 - `styles.css`: identidad visual, responsive, foco y movimiento reducido.
 - `app.js`: menú móvil, pestañas accesibles, selección de proyectos y aprobación simulada reversible.
-- `assets/`: logo optimizado, favicon, Manrope alojada localmente y su licencia.
+- `assets/`: logo optimizado, favicon, Plus Jakarta Sans alojada localmente, licencia e imagen de cierre.
 - `legal/`: copias de los documentos existentes de la versión de pruebas, con rutas relativas y una aclaración de su alcance. No se han redactado nuevas condiciones comerciales.
 - `scripts/build.mjs`: copia los archivos públicos a `dist` y configura el dominio si está definido.
 - `scripts/serve.mjs`: servidor de desarrollo local.
@@ -44,7 +44,7 @@ npm run build
 
 ## Comportamiento y contenido
 
-El CTA principal de prueba lleva a `https://synapse.dmentedigital.co/?trial=1`; el enlace alternativo abre WhatsApp al `+57 321 834 6407`, según la elección del usuario. Los mensajes están precargados; el visitante decide enviarlos. Correo: `info@dmentedigital.co`.
+El CTA principal de prueba lleva a `https://synapse.dmentedigital.co/?trial=1`; el enlace alternativo abre WhatsApp al `+57 321 834 6407`, según la elección del usuario. Los mensajes están precargados; el visitante decide enviarlos. Correo: `info@dmentedigital.co`. El enlace Ingresar a Synapse del encabezado abre `https://synapse.dmentedigital.co/`.
 
 El tablero es ilustrativo. Proyectos, nombres, responsables, avances y horarios son ficticios. Simular una aprobación solo cambia el DOM; permite reiniciar y no hace llamadas de red ni ejecuta una acción real. La landing no recopila formularios, no inicia sesión, no utiliza almacenamiento del navegador ni incluye analítica.
 
@@ -84,4 +84,4 @@ La conexión global autorizada de Dmente Digital se encuentra en `C:\Users\diego
 
 El logo procede de `LOGO DMENTE SYNAPSE FINAL.jpg`, suministrado en este proyecto. Se redujo a WebP de 640 × 640 sin generar una marca nueva. El favicon es una D tipográfica geométrica auxiliar, no sustituye el logo.
 
-Tipografía Manrope, distribución de Google Fonts, licencia SIL Open Font License en `assets/Manrope-OFL.txt`. URL de origen: `https://fonts.gstatic.com/s/manrope/v20/xn7gYHE41ni1AdIRggexSg.woff2`. Iconos geométricos SVG incluidos en el HTML. No hay CDN ni dependencias remotas en tiempo de ejecución.
+Tipografía Plus Jakarta Sans del kit de marca de Dmente Digital, convertida a WOFF2. Licencia SIL Open Font License en assets/PlusJakartaSans-OFL.txt. Iconos SVG incluidos en el HTML. Los recursos de la página se sirven localmente.

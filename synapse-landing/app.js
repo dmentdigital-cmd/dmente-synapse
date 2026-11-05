@@ -157,7 +157,7 @@ window.addEventListener('hashchange', revealLinkedAnswer);
 revealLinkedAnswer();
 
 // The three strands share a single curve. Scroll and pointer movement change
-// the camera, and the warm pulse travels through the same geometry.
+// the camera, and the cyan pulse travels through the same geometry.
 function mountSculpture() {
   const canvas = document.querySelector('.kinetic-canvas');
   const context = canvas?.getContext('2d');
@@ -169,9 +169,9 @@ function mountSculpture() {
   const filaments = 11;
   const depthBands = 6;
   const materials = [
-    [[114, 51, 27], [255, 123, 62]],
-    [[105, 67, 42], [255, 221, 163]],
-    [[105, 37, 25], [255, 157, 111]],
+    [[21, 99, 103], [43, 235, 210]],
+    [[46, 112, 149], [244, 248, 255]],
+    [[8, 81, 113], [8, 186, 204]],
   ];
 
   function center(angle) {
@@ -284,7 +284,7 @@ function mountSculpture() {
       }
     }
     context.lineWidth = 2.4;
-    context.strokeStyle = '#fff5dc';
+    context.strokeStyle = '#f4f8ff';
     context.stroke(sparks);
 
     if (moving) frameId = requestAnimationFrame(draw);
