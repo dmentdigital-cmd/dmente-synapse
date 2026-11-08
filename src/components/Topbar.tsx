@@ -1,4 +1,4 @@
-import { Brain, CalendarDays, ClipboardList, Compass, FolderKanban, Home, LogOut, Plus, Settings, Sparkles, UsersRound } from 'lucide-react'
+import { Brain, CalendarDays, ClipboardList, Compass, FolderKanban, Home, Lightbulb, LogOut, Plus, Settings, Sparkles, UsersRound } from 'lucide-react'
 import type { AgentId, Section } from '../types'
 
 type Props = { section: Section; pendingCount: number; canViewLeads: boolean; canViewSecondBrain?: boolean; setSection: (section: Section) => void; setActiveAgent: (agent: AgentId) => void; onAddAgent: () => void; onLogout: () => void }
@@ -16,6 +16,7 @@ export function Topbar({ section, pendingCount, canViewLeads, canViewSecondBrain
       <button type="button" className={section === 'projects' ? 'nav-item active' : 'nav-item'} onClick={() => setSection('projects')}><FolderKanban size={17} /> Proyectos</button>
       <button type="button" className={section === 'requests' ? 'nav-item active' : 'nav-item'} onClick={() => setSection('requests')}><ClipboardList size={17} /> Solicitudes {pendingCount > 0 && <span className="nav-count">{pendingCount}</span>}</button>
       {canViewLeads && <button type="button" className={section === 'leads' ? 'nav-item active' : 'nav-item'} onClick={() => setSection('leads')}><UsersRound size={17} /> Leads</button>}
+      <button type="button" className={section === 'ideas' ? 'nav-item active' : 'nav-item'} onClick={() => setSection('ideas')}><Lightbulb size={17} /> CENIT Dmente</button>
       <button type="button" className={section === 'settings' ? 'nav-item active' : 'nav-item'} onClick={() => setSection('settings')}><Settings size={17} /> Configuración</button>
     </nav>
     <div className="topbar-actions"><button className="add-agent" onClick={onAddAgent}><Plus size={17} /> Añadir agente</button><button className="logout-button" onClick={onLogout}><LogOut size={16} /> Salir</button></div>
