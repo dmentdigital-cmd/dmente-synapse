@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from 'node:crypto'
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { readJsonBody } from './security.js'
 
@@ -6,7 +6,9 @@ export function authorizeVertice(authorization: string | undefined, organization
   // Credencial distinta por empresa. No utiliza sesiones del propietario de Synapse.
   let clients: Record<string, string>
   try { clients = JSON.parse(process.env.SYNAPSE_VERTICE_CLIENTS ?? '{}'); if (!clients || typeof clients !== 'object' || Array.isArray(clients)) return false } catch { return false }
-  const expected = Object.hasOwn(clients, organizationId) ? clients[organizationId] : undefined
+  if (!/^[A-Za-z0-9_-]{1,160}$/.test(organizationId)) return false
+  const shared = process.env.SYNAPSE_VERTICE_SHARED_SECRET
+  const expected = Object.hasOwn(clients, organizationId) ? clients[organizationId] : shared && shared.length >= 32 ? createHmac('sha256', shared).update(organizationId).digest('hex') : undefined
   if (typeof expected !== 'string' || expected.length < 32 || !authorization?.startsWith('Bearer ')) return false
   const hash = (s: string) => createHash('sha256').update(s).digest()
   return timingSafeEqual(hash(expected), hash(authorization.slice(7)))
@@ -26,9 +28,11 @@ export async function handleVerticeBridge(req: IncomingMessage, res: ServerRespo
     if (!raw || typeof raw !== 'object' || !['system', 'user', 'assistant'].includes(raw.role) || typeof raw.content !== 'string' || raw.content.length > 60000) return send(422, { error: 'Mensaje no válido' })
     messages.push({ role: raw.role, content: raw.content })
   }
-  const base = process.env.SYNAPSE_VERTICE_LLM_URL?.replace(/\/+$/, '')
-  const token = process.env.SYNAPSE_VERTICE_LLM_TOKEN
-  const model = process.env.SYNAPSE_VERTICE_MODEL
+  const rawBase = process.env.SYNAPSE_VERTICE_LLM_URL ?? process.env.HERMES_API_URL
+  const trimmedBase = rawBase?.replace(/\/+$/, '')
+  const base = trimmedBase && (trimmedBase.endsWith('/v1') ? trimmedBase : `${trimmedBase}/v1`)
+  const token = process.env.SYNAPSE_VERTICE_LLM_TOKEN ?? process.env.HERMES_API_KEY
+  const model = process.env.SYNAPSE_VERTICE_MODEL ?? (process.env.HERMES_API_URL ? 'hermes-agent' : undefined)
   if (!base || !token || !model) return send(503, { error: 'Proveedor comercial de Synapse sin configurar' })
   // Este flujo no carga DB, notas, conversaciones personales ni herramientas de Synapse.
   try {
