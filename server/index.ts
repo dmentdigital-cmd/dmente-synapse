@@ -19,6 +19,7 @@ import { startDailyProjectReportScheduler } from './daily-project-report.js'
 import { inferQuadrant } from './eisenhower.js'
 import { handleSecondBrainRoutes } from './second-brain-routes.js'
 import { serveStatic } from './static-files.js'
+import { handleVerticeBridge } from './vertice-bridge.js'
 
 const port = Number(process.env.PORT ?? 3010)
 const host = process.env.SYNAPSE_HOST ?? '127.0.0.1'
@@ -130,6 +131,7 @@ const server = createServer(async (req, res) => {
       const branch = text(process.env.COOLIFY_BRANCH) || 'unknown'
       return send(res, 200, { service: 'dmente-synapse', sourceCommit, branch })
     }
+    if (url.pathname === '/api/integrations/vertice/turn') return handleVerticeBridge(req, res)
     if (req.method === 'GET' && url.pathname === '/api/health') {
       if (!sessionFromRequest(req)) return send(res, 200, { ok: true, service: 'dmente-synapse-api' })
       if (!requireSession(req, res)) return
