@@ -1,6 +1,13 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { allowedCommercialEndpoint } from '../server/vertice-bridge.js'
+import { allowedCommercialEndpoint, commercialAction } from '../server/vertice-bridge.js'
+
+test('extrae la acción JSON aunque el proveedor añada texto o Markdown', () => {
+  assert.deepEqual(commercialAction('Verificado: {"action":"none"}'), { action: 'none' })
+  assert.deepEqual(commercialAction('```json\n{"action":"reply","text":"Respuesta"}\n```'), { action: 'reply', text: 'Respuesta' })
+  assert.equal(commercialAction('No confirmé ninguna acción.'), null)
+  assert.equal(commercialAction('{"action":"delete_everything"}'), null)
+})
 
 test('reutiliza solo el origen privado existente de Hermes en producción', () => {
   const before = { node: process.env.NODE_ENV, hermes: process.env.HERMES_API_URL, commercial: process.env.SYNAPSE_VERTICE_LLM_URL }
