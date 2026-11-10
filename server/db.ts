@@ -40,6 +40,42 @@ db.exec(`
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS oauth_clients (
+    client_id TEXT PRIMARY KEY,
+    client_name TEXT NOT NULL,
+    redirect_uris_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
+    code_hash TEXT PRIMARY KEY,
+    client_id TEXT NOT NULL,
+    redirect_uri TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    code_challenge TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    FOREIGN KEY (client_id) REFERENCES oauth_clients(client_id),
+    FOREIGN KEY (user_id) REFERENCES user_accounts(id)
+  );
+  CREATE TABLE IF NOT EXISTS oauth_access_tokens (
+    token_hash TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES user_accounts(id)
+  );
+  CREATE INDEX IF NOT EXISTS oauth_access_tokens_expiry ON oauth_access_tokens(expires_at);
+  CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
+    token_hash TEXT PRIMARY KEY,
+    client_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (client_id) REFERENCES oauth_clients(client_id),
+    FOREIGN KEY (user_id) REFERENCES user_accounts(id)
+  );
   CREATE TABLE IF NOT EXISTS data_deletion_requests (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
@@ -466,6 +502,60 @@ export function findUserById(id: string): UserAccount | null {
 export function listUserAccounts(): Omit<UserAccount, 'passwordHash' | 'passwordSalt' | 'totpSecretEncrypted' | 'totpPendingEncrypted'>[] {
   const rows = db.prepare('SELECT id, username, name, role, domains_json, active, trial_enabled, trial_started_at, trial_ends_at FROM user_accounts ORDER BY name COLLATE NOCASE').all() as Record<string, unknown>[]
   return rows.map((row) => ({ id: String(row.id), username: String(row.username), name: String(row.name), role: row.role as UserRole, domains: JSON.parse(String(row.domains_json)) as Domain[], active: Boolean(row.active), trialEnabled: Boolean(row.trial_enabled), trialStartedAt: row.trial_started_at ? String(row.trial_started_at) : null, trialEndsAt: row.trial_ends_at ? String(row.trial_ends_at) : null }))
+}
+
+export type OAuthClientRecord = { clientId: string; clientName: string; redirectUris: string[]; createdAt: string }
+export type OAuthCodeRecord = { clientId: string; redirectUri: string; userId: string; scope: string; codeChallenge: string; expiresAt: number }
+export type OAuthTokenRecord = { userId: string; scope: string; expiresAt: number }
+export type OAuthRefreshTokenRecord = { clientId: string; userId: string; scope: string; expiresAt: number }
+
+export function createOAuthClient(input: { clientId: string; clientName: string; redirectUris: string[] }): OAuthClientRecord {
+  const createdAt = new Date().toISOString()
+  db.prepare('INSERT INTO oauth_clients (client_id, client_name, redirect_uris_json, created_at) VALUES (?, ?, ?, ?)').run(input.clientId, input.clientName, JSON.stringify(input.redirectUris), createdAt)
+  return { ...input, createdAt }
+}
+
+export function getOAuthClient(clientId: string): OAuthClientRecord | null {
+  const row = db.prepare('SELECT client_id, client_name, redirect_uris_json, created_at FROM oauth_clients WHERE client_id = ?').get(clientId) as { client_id: string; client_name: string; redirect_uris_json: string; created_at: string } | undefined
+  return row ? { clientId: row.client_id, clientName: row.client_name, redirectUris: JSON.parse(row.redirect_uris_json) as string[], createdAt: row.created_at } : null
+}
+
+export function saveOAuthCode(codeHash: string, input: OAuthCodeRecord): void {
+  db.prepare('DELETE FROM oauth_authorization_codes WHERE expires_at <= ?').run(Date.now())
+  db.prepare('INSERT INTO oauth_authorization_codes (code_hash, client_id, redirect_uri, user_id, scope, code_challenge, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(codeHash, input.clientId, input.redirectUri, input.userId, input.scope, input.codeChallenge, input.expiresAt)
+}
+
+export function consumeOAuthCode(codeHash: string): OAuthCodeRecord | null {
+  const row = db.prepare('SELECT client_id, redirect_uri, user_id, scope, code_challenge, expires_at FROM oauth_authorization_codes WHERE code_hash = ?').get(codeHash) as { client_id: string; redirect_uri: string; user_id: string; scope: string; code_challenge: string; expires_at: number } | undefined
+  db.prepare('DELETE FROM oauth_authorization_codes WHERE code_hash = ?').run(codeHash)
+  return row && row.expires_at > Date.now() ? { clientId: row.client_id, redirectUri: row.redirect_uri, userId: row.user_id, scope: row.scope, codeChallenge: row.code_challenge, expiresAt: row.expires_at } : null
+}
+
+export function saveOAuthToken(tokenHash: string, input: OAuthTokenRecord): void {
+  db.prepare('DELETE FROM oauth_access_tokens WHERE expires_at <= ?').run(Date.now())
+  db.prepare('INSERT INTO oauth_access_tokens (token_hash, user_id, scope, expires_at, created_at) VALUES (?, ?, ?, ?, ?)').run(tokenHash, input.userId, input.scope, input.expiresAt, new Date().toISOString())
+}
+
+export function getOAuthToken(tokenHash: string): OAuthTokenRecord | null {
+  const row = db.prepare('SELECT user_id, scope, expires_at FROM oauth_access_tokens WHERE token_hash = ?').get(tokenHash) as { user_id: string; scope: string; expires_at: number } | undefined
+  if (!row || row.expires_at <= Date.now()) { if (row) db.prepare('DELETE FROM oauth_access_tokens WHERE token_hash = ?').run(tokenHash); return null }
+  return { userId: row.user_id, scope: row.scope, expiresAt: row.expires_at }
+}
+
+export function saveOAuthRefreshToken(tokenHash: string, input: OAuthRefreshTokenRecord): void {
+  db.prepare('DELETE FROM oauth_refresh_tokens WHERE expires_at <= ?').run(Date.now())
+  db.prepare('INSERT INTO oauth_refresh_tokens (token_hash, client_id, user_id, scope, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(tokenHash, input.clientId, input.userId, input.scope, input.expiresAt, new Date().toISOString())
+}
+
+export function consumeOAuthRefreshToken(tokenHash: string): OAuthRefreshTokenRecord | null {
+  const row = db.prepare('SELECT client_id, user_id, scope, expires_at FROM oauth_refresh_tokens WHERE token_hash = ?').get(tokenHash) as { client_id: string; user_id: string; scope: string; expires_at: number } | undefined
+  db.prepare('DELETE FROM oauth_refresh_tokens WHERE token_hash = ?').run(tokenHash)
+  return row && row.expires_at > Date.now() ? { clientId: row.client_id, userId: row.user_id, scope: row.scope, expiresAt: row.expires_at } : null
+}
+
+export function revokeOAuthTokensForUser(userId: string): void {
+  db.prepare('DELETE FROM oauth_access_tokens WHERE user_id = ?').run(userId)
+  db.prepare('DELETE FROM oauth_refresh_tokens WHERE user_id = ?').run(userId)
 }
 
 export function requestAccountDataDeletion(userId: string): { id: string; status: string; createdAt: string } {
