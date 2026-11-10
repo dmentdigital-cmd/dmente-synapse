@@ -20,6 +20,7 @@ import { inferQuadrant } from './eisenhower.js'
 import { handleSecondBrainRoutes } from './second-brain-routes.js'
 import { serveStatic } from './static-files.js'
 import { handleVerticeBridge } from './vertice-bridge.js'
+import { handleOAuth } from './oauth.js'
 
 const port = Number(process.env.PORT ?? 3010)
 const host = process.env.SYNAPSE_HOST ?? '127.0.0.1'
@@ -98,6 +99,7 @@ const server = createServer(async (req, res) => {
   try {
     if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return }
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
+    if (await handleOAuth(req, res, url)) return
     if ((url.pathname.startsWith('/api/') || url.pathname === '/mcp') && !allowApiRequest(req)) return send(res, 429, { error: 'Demasiadas solicitudes. Intenta de nuevo en un minuto.' })
     if (url.pathname === '/api/public/leads' && req.method === 'POST') {
       if (!allowLeadRequest(req)) return send(res, 429, { error: 'Demasiadas solicitudes de leads. Intenta de nuevo en un minuto.' })

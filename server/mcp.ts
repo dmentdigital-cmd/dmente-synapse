@@ -5,6 +5,7 @@ import { readJsonBody } from './security.js'
 import type { AgentId, Domain } from './types.js'
 import { editAgendaRecord, removeAgendaRecord } from './agenda-mutations.js'
 import { callProjectTool, isProjectTool, projectReadOnlyTools, projectToolDefinitions } from './project-mcp.js'
+import { oauthAccess } from './oauth.js'
 
 const legacyMcpToken = process.env.SYNAPSE_MCP_TOKEN
 const mcpReadToken = process.env.SYNAPSE_MCP_READ_TOKEN
@@ -57,6 +58,8 @@ export function authorizedWriteForDomain(req: IncomingMessage, domain: Domain): 
 }
 
 function authorizedScope(req: IncomingMessage): McpAccess | null {
+  const oauth = oauthAccess(req)
+  if (oauth) return oauth
   const received = req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : ''
   if (!received) return null
   const receivedDigest = digest(received)
