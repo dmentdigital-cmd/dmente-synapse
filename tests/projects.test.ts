@@ -235,7 +235,7 @@ test('domain permissions hide projects, and clients need agency or sales access'
 test('Lucia MCP reads with either scope and writes only with write scope inside its domains', async () => {
   await restart()
   const tools = (await rpc('tools/list', {})).result.tools.map((tool: any) => tool.name)
-  for (const name of ['synapse_list_projects', 'synapse_get_project', 'synapse_projects_digest', 'synapse_create_project', 'synapse_update_project', 'synapse_create_milestone', 'synapse_update_milestone', 'synapse_add_project_update', 'synapse_resolve_blocker']) assert.ok(tools.includes(name), name)
+  for (const name of ['synapse_list_projects', 'synapse_get_project', 'synapse_get_project_status', 'synapse_projects_digest', 'synapse_create_project', 'synapse_update_project', 'synapse_create_milestone', 'synapse_update_milestone', 'synapse_add_project_update', 'synapse_resolve_blocker']) assert.ok(tools.includes(name), name)
   assert.equal(tools.some((name: string) => /delete_project/.test(name)), false)
 
   const listed = (await mcp('synapse_list_projects', {}, 'read')).result.structuredContent.projects
@@ -243,6 +243,23 @@ test('Lucia MCP reads with either scope and writes only with write scope inside 
   assert.equal(listed.some((project: any) => !['agency', 'technology', 'projects'].includes(project.domain)), false)
   assert.equal((await mcp('synapse_create_project', { name: 'Solo lectura', domain: 'agency' }, 'read')).error.code, -32003)
   assert.ok((await mcp('synapse_get_project', { projectId: 'familia-lucia' }, 'read')).error)
+  const before = await database()
+  const beforeCounts = {
+    projects: Number(before.prepare('SELECT COUNT(*) AS count FROM projects').get()?.count),
+    audits: Number(before.prepare('SELECT COUNT(*) AS count FROM audit_events').get()?.count),
+  }
+  before.close()
+  const status = (await mcp('synapse_get_project_status', { projectId: 'corpav-diplomado-steam-ia' }, 'read')).result.structuredContent
+  assert.deepEqual(Object.keys(status).sort(), ['projectId', 'status', 'updatedAt'])
+  assert.equal(status.projectId, 'corpav-diplomado-steam-ia')
+  assert.equal(status.status, 'por_clasificar')
+  assert.match(status.updatedAt, /^\d{4}-\d{2}-\d{2}T/)
+  const after = await database()
+  assert.deepEqual({
+    projects: Number(after.prepare('SELECT COUNT(*) AS count FROM projects').get()?.count),
+    audits: Number(after.prepare('SELECT COUNT(*) AS count FROM audit_events').get()?.count),
+  }, beforeCounts)
+  after.close()
   assert.ok((await mcp('synapse_create_project', { name: 'Salud privada', domain: 'health' })).error)
   assert.ok((await mcp('synapse_update_project', { projectId: 'ples-crm-marcas', changes: { status: 'en_curso' } })).error, 'projects domain is read-only for the write token')
 

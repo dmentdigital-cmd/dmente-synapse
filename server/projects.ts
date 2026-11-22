@@ -145,6 +145,14 @@ function getProjectRow(id: string): Project | null {
   return found ? projectFromRow(found) : null
 }
 
+/** Minimal status read: no task sync, derived summaries, audit entries, or writes. */
+export function getProjectStatus(id: string, actor: ProjectActor): Pick<Project, 'id' | 'status' | 'updatedAt'> {
+  const project = getProjectRow(id)
+  if (!project) throw new ProjectError('Proyecto no encontrado.', 404)
+  if (!actor.allowDomain(project.domain)) throw new ProjectError('No tienes acceso a ese dominio.', 403)
+  return { id: project.id, status: project.status, updatedAt: project.updatedAt }
+}
+
 function getMilestoneRow(projectId: string, milestoneId: string): Milestone | null {
   const found = row('SELECT * FROM project_milestones WHERE id = ? AND project_id = ? AND deleted_at IS NULL', milestoneId, projectId)
   return found ? milestoneFromRow(found) : null

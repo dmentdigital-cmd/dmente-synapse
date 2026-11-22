@@ -1,4 +1,4 @@
-import { addProjectUpdate, importProjectState, createMilestone, createProject, getProjectDetail, projectReport, setProjectMetric, listProjects, MILESTONE_STATUSES, PROJECT_STATUSES, projectsDigest, resolveBlocker, UPDATE_KINDS, updateMilestone, updateProject, type ProjectActor } from './projects.js'
+import { addProjectUpdate, importProjectState, createMilestone, createProject, getProjectDetail, getProjectStatus, projectReport, setProjectMetric, listProjects, MILESTONE_STATUSES, PROJECT_STATUSES, projectsDigest, resolveBlocker, UPDATE_KINDS, updateMilestone, updateProject, type ProjectActor } from './projects.js'
 import type { Domain } from './types.js'
 
 // Project tools for Lucía. Reading needs no write scope; every write shares the validation of the
@@ -8,11 +8,12 @@ const nullableIsoDate = { type: ['string', 'null'], description: 'Fecha ISO con 
 const projectChanges = { name: { type: 'string', maxLength: 200 }, code: { type: ['string', 'null'], description: 'Código corto en mayúsculas, el mismo que usa Bitácora (ej. CORPAV).' }, clientId: { type: ['string', 'null'] }, domain: { type: 'string' }, ownerAgentId: { type: 'string' }, status: { type: 'string', enum: PROJECT_STATUSES }, startsAt: nullableIsoDate, dueAt: nullableIsoDate, nextAction: { type: ['string', 'null'], maxLength: 2000 }, sourcePath: { type: ['string', 'null'] }, sourceDriveFolder: { type: ['string', 'null'] }, obsidianNote: { type: ['string', 'null'] } }
 const milestoneChanges = { title: { type: 'string', maxLength: 200 }, phase: { type: ['string', 'null'], description: 'Etiqueta para agrupar hitos, por ejemplo Descubrimiento.' }, ownerAgentId: { type: ['string', 'null'] }, ownerName: { type: ['string', 'null'], description: 'Persona responsable cuando no es un agente.' }, startsAt: nullableIsoDate, dueAt: isoDate, status: { type: 'string', enum: MILESTONE_STATUSES }, sortOrder: { type: 'integer', minimum: 0 }, notes: { type: ['string', 'null'], maxLength: 2000 } }
 
-export const projectReadOnlyTools = ['synapse_list_projects', 'synapse_get_project', 'synapse_projects_digest', 'synapse_project_report']
+export const projectReadOnlyTools = ['synapse_list_projects', 'synapse_get_project', 'synapse_get_project_status', 'synapse_projects_digest', 'synapse_project_report']
 
 export const projectToolDefinitions = [
   { name: 'synapse_list_projects', description: 'Lista los proyectos con estado, semáforo (rojo, amarillo, verde), avance por hitos, próximo hito y tareas abiertas. Los valores los calcula Synapse; no los estimes.', inputSchema: { type: 'object', properties: { status: { type: 'string', enum: PROJECT_STATUSES } } } },
   { name: 'synapse_get_project', description: 'Devuelve la ficha de un proyecto con su cronograma de hitos, tareas y novedades.', inputSchema: { type: 'object', properties: { projectId: { type: 'string' } }, required: ['projectId'] } },
+  { name: 'synapse_get_project_status', description: 'Consulta mínima y de solo lectura. Devuelve únicamente projectId, status y updatedAt; no sincroniza tareas ni crea registros.', inputSchema: { type: 'object', properties: { projectId: { type: 'string' } }, required: ['projectId'] } },
   { name: 'synapse_projects_digest', description: 'Resumen de coordinación: hitos atrasados, hitos de los próximos 7 días, bloqueos abiertos, proyectos sin movimiento y proyectos en rojo o amarillo con sus razones. Consúltalo antes de responder sobre el estado de los proyectos.', inputSchema: { type: 'object', properties: {} } },
   { name: 'synapse_create_project', description: 'Registra un proyecto interno. No ejecuta acciones externas. Si no envías id se deriva del nombre.', inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'Identificador en minúsculas, números y guiones.' }, ...projectChanges }, required: ['name', 'domain'] } },
   { name: 'synapse_update_project', description: 'Edita un proyecto por id cuando Diego lo solicita: estado, fechas, responsable, siguiente acción o referencias. Primero consulta el proyecto.', inputSchema: { type: 'object', properties: { projectId: { type: 'string' }, changes: { type: 'object', additionalProperties: false, properties: { ...projectChanges, comment: { type: 'string', description: 'Contexto del cambio de estado.' } } } }, required: ['projectId', 'changes'] } },
@@ -43,6 +44,10 @@ export function callProjectTool(name: string, args: Record<string, unknown>, acc
   const actor: ProjectActor = { source: 'hermes-mcp', allowDomain: (domain) => access.domains.includes(domain) }
   if (name === 'synapse_list_projects') return { projects: listProjects(actor, { status: typeof args.status === 'string' ? args.status : null }) }
   if (name === 'synapse_get_project') return getProjectDetail(required(args.projectId, 'projectId'), actor)
+  if (name === 'synapse_get_project_status') {
+    const status = getProjectStatus(required(args.projectId, 'projectId'), actor)
+    return { projectId: status.id, status: status.status, updatedAt: status.updatedAt }
+  }
   if (name === 'synapse_projects_digest') return projectsDigest(actor)
   if (name === 'synapse_create_project') return { project: createProject(args, actor) }
   if (name === 'synapse_update_project') return { project: updateProject(required(args.projectId, 'projectId'), objectArg(args.changes, 'changes'), actor) }
